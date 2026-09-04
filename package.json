@@ -1,6 +1,6 @@
 {
   "name": "ai-usage-viewer",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Multi-account usage dashboard for Claude, Codex, and Cursor",
   "author": "LCH-1",
