@@ -25,6 +25,13 @@ export interface AccountUsage {
   warning: string | null
 }
 
+export interface UpdateInfo {
+  currentVersion: string
+  latestVersion: string
+  releaseUrl: string
+  available: boolean
+}
+
 export interface AccountView extends Account {
   usage: AccountUsage | null
   error: string | null

@@ -39,6 +39,8 @@ export function installDemoApi(): void {
     removeAccount: async (_accountId: string) => undefined,
     authenticateAccount: async (_accountId: string) => undefined,
     openProviderPortal: async (_accountId: string) => undefined,
+    checkForUpdate: async () => ({ currentVersion: "0.1.6", latestVersion: "0.1.7", releaseUrl: "https://github.com/LCH-1/ai-usage-viewer/releases/latest", available: true }),
+    openLatestRelease: async () => undefined,
     refreshAccount: async (accountId: string, _force = false) => usage[accountId] ?? sample(accountId, "demo@example.com", "PRO", []),
   }
   window.usageViewer = api

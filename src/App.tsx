@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 
 import { formatDateTime } from "./shared/date"
 import { PROVIDERS, PROVIDER_ORDER } from "./shared/providers"
-import type { Account, AccountView, ProviderId, UsageMetric } from "./shared/types"
+import type { Account, AccountView, ProviderId, UpdateInfo, UsageMetric } from "./shared/types"
 
 const EMPTY_ACCOUNTS: AccountView[] = []
 const applicationWindow = getCurrentWindow()
@@ -220,6 +220,8 @@ export function App() {
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null)
   const [refreshingAll, setRefreshingAll] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState(() => window.localStorage.getItem("dismissed-update-version"))
 
   const refreshAccount = useCallback(async (accountId: string, force = false) => {
     setAccounts((current) => current.map((item) => item.id === accountId ? { ...item, loading: true, error: null } : item))
@@ -263,6 +265,21 @@ export function App() {
     const timer = window.setInterval(() => accounts.forEach((account) => void refreshAccount(account.id)), 10 * 1000)
     return () => window.clearInterval(timer)
   }, [accounts.length, ready, refreshAccount])
+
+  useEffect(() => {
+    let active = true
+    function check() {
+      void window.usageViewer.checkForUpdate()
+        .then((info) => { if (active) setUpdateInfo(info) })
+        .catch(() => undefined)
+    }
+    check()
+    const timer = window.setInterval(check, 6 * 60 * 60 * 1000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [])
 
   const grouped = useMemo(() => PROVIDER_ORDER.map((provider) => ({
     provider,
@@ -311,6 +328,13 @@ export function App() {
   }
 
   const editingAccount = editingAccountId ? accounts.find((account) => account.id === editingAccountId) ?? null : null
+  const updateAvailable = updateInfo?.available && updateInfo.latestVersion !== dismissedUpdateVersion
+
+  function dismissUpdate() {
+    if (!updateInfo) return
+    window.localStorage.setItem("dismissed-update-version", updateInfo.latestVersion)
+    setDismissedUpdateVersion(updateInfo.latestVersion)
+  }
 
   return (
     <div className="app-frame">
@@ -323,6 +347,15 @@ export function App() {
           <button className="primary-button compact" onClick={() => setDialogOpen(true)}>＋ 계정</button>
         </div>
       </header>
+      {updateAvailable ? (
+        <aside className="update-banner">
+          <div><strong>새 버전 {updateInfo.latestVersion}이 있습니다</strong><span>현재 버전 {updateInfo.currentVersion}</span></div>
+          <div className="update-actions">
+            <button className="update-link" onClick={() => void window.usageViewer.openLatestRelease()}>업데이트 받기</button>
+            <button className="update-dismiss" onClick={dismissUpdate} title="이번 버전 알림 닫기" aria-label="이번 버전 알림 닫기">×</button>
+          </div>
+        </aside>
+      ) : null}
       {banner ? <button className="banner" onClick={() => setBanner(null)}>{banner}<span>×</span></button> : null}
       {!ready ? <div className="empty-state"><div className="loader" /><p>계정을 불러오는 중입니다</p></div> : null}
       {ready && accounts.length === 0 ? (

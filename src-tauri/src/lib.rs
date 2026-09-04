@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
-use models::{Account, AccountUsage, ProviderId};
+use models::{Account, AccountUsage, ProviderId, UpdateInfo};
+use serde::Deserialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Runtime, State, WindowEvent};
@@ -22,6 +23,15 @@ const CLAUDE_CACHE_TTL: Duration = Duration::from_secs(60);
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(30);
 const CLAUDE_REQUEST_GAP: Duration = Duration::from_secs(2);
 const CLAUDE_BACKOFF: Duration = Duration::from_secs(90);
+const LATEST_RELEASE_API: &str =
+    "https://api.github.com/repos/LCH-1/ai-usage-viewer/releases/latest";
+const LATEST_RELEASE_URL: &str = "https://github.com/LCH-1/ai-usage-viewer/releases/latest";
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    html_url: String,
+}
 
 struct CachedUsage {
     usage: AccountUsage,
@@ -153,6 +163,48 @@ fn open_provider_portal<R: Runtime>(app: AppHandle<R>, account_id: String) -> Re
     let account = store::find_account(&account_id)?;
     app.opener()
         .open_url(account.provider.usage_url(), None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+fn is_newer_version(latest: &str, current: &str) -> Result<bool, String> {
+    let latest = semver::Version::parse(latest.trim_start_matches('v'))
+        .map_err(|error| error.to_string())?;
+    let current = semver::Version::parse(current.trim_start_matches('v'))
+        .map_err(|error| error.to_string())?;
+    Ok(latest > current)
+}
+
+#[tauri::command]
+async fn check_for_update() -> Result<UpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+    let client = reqwest::Client::builder()
+        .user_agent(format!("ai-usage-viewer/{current_version}"))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(LATEST_RELEASE_API)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("업데이트 확인 실패 ({})", response.status()));
+    }
+    let release: GitHubRelease = response.json().await.map_err(|error| error.to_string())?;
+    let latest_version = release.tag_name.trim_start_matches('v').to_owned();
+    Ok(UpdateInfo {
+        current_version: current_version.into(),
+        available: is_newer_version(&latest_version, current_version)?,
+        latest_version,
+        release_url: release.html_url,
+    })
+}
+
+#[tauri::command]
+fn open_latest_release<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.opener()
+        .open_url(LATEST_RELEASE_URL, None::<&str>)
         .map_err(|error| error.to_string())
 }
 
@@ -291,6 +343,8 @@ pub fn run() {
             remove_account,
             authenticate_account,
             open_provider_portal,
+            check_for_update,
+            open_latest_release,
             refresh_account,
         ])
         .run(tauri::generate_context!())
@@ -311,6 +365,13 @@ mod tests {
             source_url: "https://example.com".into(),
             warning: None,
         }
+    }
+
+    #[test]
+    fn compares_release_versions() {
+        assert!(is_newer_version("v0.1.7", "0.1.6").unwrap());
+        assert!(!is_newer_version("v0.1.6", "0.1.6").unwrap());
+        assert!(!is_newer_version("v0.1.5", "0.1.6").unwrap());
     }
 
     #[tokio::test]

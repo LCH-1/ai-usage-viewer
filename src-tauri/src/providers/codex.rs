@@ -40,7 +40,7 @@ impl CodexServer {
             notifications: VecDeque::new(),
         };
         server.request("initialize", json!({
-            "clientInfo": { "name": "ai-usage-viewer", "title": "Usage Viewer", "version": "0.1.5" },
+            "clientInfo": { "name": "ai-usage-viewer", "title": "Usage Viewer", "version": "0.1.6" },
             "capabilities": { "experimentalApi": false }
         })).await?;
         server.notify("initialized", Value::Null).await?;

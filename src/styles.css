@@ -192,6 +192,27 @@ button:disabled { cursor: default; opacity: .45; }
 .login-callout:hover { background: #212117; }
 .updated { color: #525a55; font-size: 8px; white-space: nowrap; }
 .banner { display: flex; justify-content: space-between; margin: -12px 0 18px; }
+.update-banner {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -12px 0 18px;
+  padding: 8px 9px 8px 12px;
+  border: 1px solid #2f4639;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #132019, #101612);
+  box-shadow: 0 12px 30px rgba(0,0,0,.16);
+}
+.update-banner > div:first-child { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.update-banner strong { color: #dff8e8; font-size: 11px; }
+.update-banner span { color: #718078; font-size: 9px; }
+.update-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
+.update-link { min-height: 29px; padding: 0 10px; border-radius: 8px; background: #dff8e8; color: #142219; font-size: 10px; font-weight: 800; }
+.update-link:hover { background: #fff; }
+.update-dismiss { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 7px; background: transparent; color: #68736c; font-size: 17px; }
+.update-dismiss:hover { background: #243029; color: #e8eeea; }
 
 .empty-state {
   display: flex;
@@ -292,4 +313,6 @@ input:focus { border-color: #617269; }
   .top-actions button { width: 100%; }
   .metrics { grid-template-columns: 1fr; }
   .provider-link-button { padding: 0 7px; }
+  .update-banner { align-items: flex-start; }
+  .update-actions { align-self: center; }
 }

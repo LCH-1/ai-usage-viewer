@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 
-import type { Account, AccountUsage, ProviderId } from "./shared/types"
+import type { Account, AccountUsage, ProviderId, UpdateInfo } from "./shared/types"
 
 export const usageViewerApi = {
   listAccounts: (): Promise<Account[]> => invoke("list_accounts"),
@@ -9,6 +9,8 @@ export const usageViewerApi = {
   removeAccount: (accountId: string): Promise<void> => invoke("remove_account", { accountId }),
   authenticateAccount: (accountId: string): Promise<void> => invoke("authenticate_account", { accountId }),
   openProviderPortal: (accountId: string): Promise<void> => invoke("open_provider_portal", { accountId }),
+  checkForUpdate: (): Promise<UpdateInfo> => invoke("check_for_update"),
+  openLatestRelease: (): Promise<void> => invoke("open_latest_release"),
   refreshAccount: (accountId: string, force = false): Promise<AccountUsage> => invoke("refresh_account", { accountId, force }),
 }
 
