@@ -74,7 +74,7 @@ class CodexAppServer {
 
   async initialize(): Promise<void> {
     await this.request("initialize", {
-      clientInfo: { name: "ai-usage-viewer", title: "Usage Viewer", version: "0.1.1" },
+      clientInfo: { name: "ai-usage-viewer", title: "Usage Viewer", version: "0.1.2" },
       capabilities: { experimentalApi: false },
     })
     this.notify("initialized")

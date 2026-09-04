@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron"
+import { app, BrowserWindow, ipcMain, Menu, shell, Tray } from "electron"
 import { join } from "node:path"
 
-import { addAccount, listAccounts, removeAccount } from "./account-store"
+import { addAccount, listAccounts, removeAccount, renameAccount } from "./account-store"
 import { deleteCredential } from "./credential-store"
 import { authenticateClaude, getClaudeUsage } from "./providers/claude"
 import { authenticateCodex, getCodexUsage } from "./providers/codex"
@@ -11,6 +11,19 @@ import type { Account, AccountUsage, ProviderId } from "../src/shared/types"
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL)
 const activeAuthentications = new Map<string, Promise<void>>()
+let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
+
+function appIconPath(): string {
+  return isDevelopment ? join(app.getAppPath(), "public", "icon.png") : join(app.getAppPath(), "dist", "icon.png")
+}
+
+function showMainWindow(): void {
+  if (!mainWindow) return
+  mainWindow.show()
+  mainWindow.focus()
+}
 
 async function findAccount(accountId: string): Promise<Account> {
   const account = (await listAccounts()).find((item) => item.id === accountId)
@@ -46,6 +59,7 @@ function registerIpc(): void {
     if (!isProviderId(provider)) throw new Error("지원하지 않는 플랫폼입니다.")
     return addAccount(provider, String(label ?? ""))
   })
+  ipcMain.handle("accounts:rename", (_event, accountId: string, label: string) => renameAccount(accountId, String(label ?? "")))
   ipcMain.handle("accounts:remove", async (_event, accountId: string) => {
     const account = await removeAccount(accountId)
     if (account) await deleteCredential(account.id)
@@ -68,6 +82,7 @@ async function createMainWindow(): Promise<void> {
     minHeight: 620,
     backgroundColor: "#070809",
     title: "Usage Viewer",
+    icon: appIconPath(),
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, "preload.js"),
@@ -75,6 +90,16 @@ async function createMainWindow(): Promise<void> {
       nodeIntegration: false,
       sandbox: true,
     },
+  })
+  mainWindow = window
+
+  window.on("close", (event) => {
+    if (isQuitting) return
+    event.preventDefault()
+    window.hide()
+  })
+  window.on("closed", () => {
+    if (mainWindow === window) mainWindow = null
   })
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -89,11 +114,20 @@ async function createMainWindow(): Promise<void> {
 app.whenReady().then(async () => {
   registerIpc()
   await createMainWindow()
+  tray = new Tray(appIconPath())
+  tray.setToolTip("Usage Viewer")
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "Usage Viewer 열기", click: showMainWindow },
+    { type: "separator" },
+    { label: "종료", click: () => app.quit() },
+  ]))
+  tray.on("click", showMainWindow)
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) await createMainWindow()
+    else showMainWindow()
   })
 })
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit()
+app.on("before-quit", () => {
+  isQuitting = true
 })

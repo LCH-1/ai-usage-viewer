@@ -4,25 +4,14 @@ import { join } from "node:path"
 
 import { findClaudeExecutable, runCommand } from "../command"
 import { loadCredential, saveCredential, type ClaudeCredential } from "../credential-store"
-import type { AccountUsage, UsageMetric } from "../../src/shared/types"
+import { parseClaudeUsageMetrics, type ClaudeUsagePayload } from "../../src/shared/claude-usage"
+import type { AccountUsage } from "../../src/shared/types"
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 const TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 const OAUTH_BETA = "oauth-2025-04-20"
-
-interface ClaudeWindow {
-  utilization?: number
-  resets_at?: string
-}
-
-interface ClaudeUsagePayload {
-  five_hour?: ClaudeWindow
-  seven_day?: ClaudeWindow
-  seven_day_sonnet?: ClaudeWindow
-  seven_day_opus?: ClaudeWindow
-}
 
 interface ClaudeProfilePayload {
   account?: { email?: string }
@@ -69,17 +58,6 @@ async function refreshCredential(credential: ClaudeCredential): Promise<ClaudeCr
   }
 }
 
-function metric(id: string, label: string, window: ClaudeWindow | undefined): UsageMetric | null {
-  if (!window || typeof window.utilization !== "number") return null
-  return {
-    id,
-    label,
-    usedPercent: Math.max(0, Math.min(100, Math.round(window.utilization * 10) / 10)),
-    resetText: window.resets_at ? `${new Date(window.resets_at).toLocaleString("ko-KR")} 초기화` : null,
-    detail: null,
-  }
-}
-
 export async function authenticateClaude(accountId: string): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), "usage-viewer-claude-"))
   try {
@@ -106,12 +84,7 @@ export async function getClaudeUsage(accountId: string): Promise<AccountUsage> {
     requestJson<ClaudeUsagePayload>(USAGE_URL, credential.oauth.accessToken),
     requestJson<ClaudeProfilePayload>(PROFILE_URL, credential.oauth.accessToken).catch((): ClaudeProfilePayload => ({})),
   ])
-  const metrics = [
-    metric("five-hour", "5시간", usage.five_hour),
-    metric("weekly", "주간", usage.seven_day),
-    metric("sonnet", "Sonnet 주간", usage.seven_day_sonnet),
-    metric("opus", "Opus 주간", usage.seven_day_opus),
-  ].filter((item): item is UsageMetric => item !== null)
+  const metrics = parseClaudeUsageMetrics(usage)
   return {
     accountId,
     email: profile.account?.email ?? null,

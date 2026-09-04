@@ -33,21 +33,24 @@ function Metric({ metric }: { metric: UsageMetric }) {
   )
 }
 
-function AccountCard({ account, onRefresh, onAuthenticate, onPortal, onRemove }: {
+function AccountCard({ account, onRefresh, onAuthenticate, onPortal, onRename, onRemove }: {
   account: AccountView
   onRefresh: (id: string) => void
   onAuthenticate: (id: string) => void
   onPortal: (id: string) => void
+  onRename: (id: string) => void
   onRemove: (id: string) => void
 }) {
-  const identity = account.usage?.email ?? account.label
   const plan = account.usage?.plan
   return (
     <article className="account-card">
       <div className="account-head">
         <div className="identity">
-          <strong title={identity}>{identity}</strong>
-          {plan ? <span className="plan">{plan}</span> : <span className="plan muted">확인 필요</span>}
+          <div className="identity-primary">
+            <strong title={account.label}>{account.label}</strong>
+            {plan ? <span className="plan">{plan}</span> : <span className="plan muted">확인 필요</span>}
+          </div>
+          {account.usage?.email ? <span className="account-email" title={account.usage.email}>{account.usage.email}</span> : null}
         </div>
         <div className="card-actions">
           <button className="icon-button" onClick={() => onAuthenticate(account.id)} disabled={account.loading} title="기본 브라우저에서 로그인">◇</button>
@@ -55,6 +58,7 @@ function AccountCard({ account, onRefresh, onAuthenticate, onPortal, onRemove }:
           <button className="icon-button" onClick={() => onRefresh(account.id)} disabled={account.loading} title="새로고침">
             <span className={account.loading ? "spin" : ""}>↻</span>
           </button>
+          <button className="icon-button" onClick={() => onRename(account.id)} title="계정 이름 변경">✎</button>
           <button className="icon-button danger-text" onClick={() => onRemove(account.id)} title="계정 제거">×</button>
         </div>
       </div>
@@ -212,10 +216,23 @@ export function App() {
     }
   }
 
+  async function rename(id: string) {
+    const account = accounts.find((item) => item.id === id)
+    if (!account) return
+    const label = window.prompt("새 계정 이름", account.label)?.trim()
+    if (!label || label === account.label) return
+    try {
+      const renamed = await window.usageViewer.renameAccount(id, label)
+      setAccounts((current) => current.map((item) => item.id === id ? { ...item, label: renamed.label } : item))
+    } catch (error) {
+      setBanner(readableError(error))
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand"><div className="brand-mark"><img src="/icon.png" alt="" /></div><div><span className="eyebrow">AI LIMITS</span><h1>Usage Viewer</h1></div></div>
+        <div className="brand"><div className="brand-mark"><img src="./icon.png" alt="" /></div><div><span className="eyebrow">AI LIMITS</span><h1>Usage Viewer</h1></div></div>
         <div className="top-actions">
           <button className="secondary-button compact" onClick={refreshAll} disabled={!accounts.length || refreshingAll}><span className={refreshingAll ? "spin" : ""}>↻</span> 전체 새로고침</button>
           <button className="primary-button compact" onClick={() => setDialogOpen(true)}>＋ 계정</button>
@@ -239,7 +256,7 @@ export function App() {
             </div>
             <div className="cards">
               {providerAccounts.map((account) => (
-                <AccountCard key={account.id} account={account} onRefresh={(id) => void refreshAccount(id)} onAuthenticate={(id) => void authenticateAccount(id)} onPortal={(id) => void window.usageViewer.openProviderPortal(id)} onRemove={(id) => void remove(id)} />
+                <AccountCard key={account.id} account={account} onRefresh={(id) => void refreshAccount(id)} onAuthenticate={(id) => void authenticateAccount(id)} onPortal={(id) => void window.usageViewer.openProviderPortal(id)} onRename={(id) => void rename(id)} onRemove={(id) => void remove(id)} />
               ))}
             </div>
           </section>

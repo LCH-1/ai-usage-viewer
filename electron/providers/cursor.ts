@@ -2,6 +2,7 @@ import { randomBytes, randomUUID, createHash } from "node:crypto"
 import { shell } from "electron"
 
 import { loadCredential, saveCredential, type CursorCredential } from "../credential-store"
+import { formatResetDate } from "../../src/shared/date"
 import type { AccountUsage, UsageMetric } from "../../src/shared/types"
 
 const LOGIN_URL = "https://cursor.com/loginDeepControl"
@@ -9,8 +10,8 @@ const API_BASE = "https://api2.cursor.sh"
 const CLIENT_ID = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB"
 
 interface CursorUsagePayload {
-  billingCycleStart?: number
-  billingCycleEnd?: number
+  billingCycleStart?: number | string
+  billingCycleEnd?: number | string
   planUsage?: {
     totalPercentUsed?: number
     autoPercentUsed?: number
@@ -25,12 +26,43 @@ interface CursorPlanPayload {
   planName?: string
 }
 
+interface CursorProfilePayload {
+  sub?: string
+  email?: string
+}
+
 function base64Url(buffer: Buffer): string {
   return buffer.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_")
 }
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function cursorUserId(accessToken: string): string | null {
+  const encodedPayload = accessToken.split(".")[1]
+  if (!encodedPayload) return null
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as { sub?: string }
+    return payload.sub?.match(/user_[A-Za-z0-9]+/)?.[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+async function getCursorProfile(accessToken: string): Promise<CursorProfilePayload> {
+  const userId = cursorUserId(accessToken)
+  if (!userId) return {}
+  const response = await fetch("https://cursor.com/api/auth/me", {
+    headers: {
+      Accept: "application/json",
+      Cookie: `WorkosCursorSessionToken=${encodeURIComponent(`${userId}::${accessToken}`)}`,
+    },
+  })
+  if (!response.ok) return {}
+  const profile = await response.json() as CursorProfilePayload
+  if (profile.sub && profile.sub !== userId) return {}
+  return profile
 }
 
 async function refreshCredential(credential: CursorCredential): Promise<CursorCredential> {
@@ -103,11 +135,12 @@ export async function getCursorUsage(accountId: string): Promise<AccountUsage> {
   if (stored.provider !== "cursor") throw new Error("저장된 Cursor 로그인 정보가 올바르지 않습니다.")
   const credential = await refreshCredential(stored)
   await saveCredential(accountId, credential)
-  const [usage, plan] = await Promise.all([
+  const [usage, plan, profile] = await Promise.all([
     cursorRequest<CursorUsagePayload>("aiserver.v1.DashboardService/GetCurrentPeriodUsage", credential.accessToken),
     cursorRequest<CursorPlanPayload>("aiserver.v1.DashboardService/GetPlanInfo", credential.accessToken).catch((): CursorPlanPayload => ({})),
+    getCursorProfile(credential.accessToken).catch((): CursorProfilePayload => ({})),
   ])
-  const reset = usage.billingCycleEnd ? `${new Date(usage.billingCycleEnd).toLocaleDateString("ko-KR")} 초기화` : null
+  const reset = formatResetDate(usage.billingCycleEnd)
   const metrics = [
     usageMetric("included", "포함 사용량", usage.planUsage?.totalPercentUsed, reset),
     usageMetric("auto", "Auto", usage.planUsage?.autoPercentUsed, reset),
@@ -115,7 +148,7 @@ export async function getCursorUsage(accountId: string): Promise<AccountUsage> {
   ].filter((item): item is UsageMetric => item !== null)
   return {
     accountId,
-    email: null,
+    email: profile.email?.trim() || null,
     plan: plan.planInfo?.planName?.toUpperCase() ?? plan.planName?.toUpperCase() ?? null,
     metrics,
     fetchedAt: new Date().toISOString(),

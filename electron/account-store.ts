@@ -45,3 +45,15 @@ export async function removeAccount(accountId: string): Promise<Account | null> 
   await saveAccounts(accounts.filter((item) => item.id !== accountId))
   return account
 }
+
+export async function renameAccount(accountId: string, label: string): Promise<Account> {
+  const nextLabel = label.trim()
+  if (!nextLabel) throw new Error("계정 이름을 입력해 주세요.")
+  const accounts = await listAccounts()
+  const index = accounts.findIndex((item) => item.id === accountId)
+  if (index < 0) throw new Error("계정을 찾을 수 없습니다.")
+  const account = { ...accounts[index], label: nextLabel }
+  accounts[index] = account
+  await saveAccounts(accounts)
+  return account
+}

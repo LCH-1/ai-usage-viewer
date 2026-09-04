@@ -30,6 +30,12 @@ export function installDemoApi(): void {
   const api = {
     listAccounts: async () => accounts,
     addAccount: async (provider: ProviderId, label: string) => ({ id: `demo-${Date.now()}`, provider, label, createdAt: new Date().toISOString() }),
+    renameAccount: async (accountId: string, label: string) => {
+      const account = accounts.find((item) => item.id === accountId)
+      if (!account) throw new Error("계정을 찾을 수 없습니다.")
+      account.label = label
+      return account
+    },
     removeAccount: async (_accountId: string) => undefined,
     authenticateAccount: async (_accountId: string) => undefined,
     openProviderPortal: async (_accountId: string) => undefined,
