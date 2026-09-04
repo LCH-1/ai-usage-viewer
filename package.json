@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
     "test": "vitest",
     "build": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && vitest run && vite build && tsc -p electron/tsconfig.json",
-    "package": "corepack pnpm run build && node tools/run-electron-builder.cjs",
+    "package": "node tools/generate-icon.cjs && corepack pnpm run build && node tools/run-electron-builder.cjs",
     "preview": "vite preview"
   },
   "dependencies": {},

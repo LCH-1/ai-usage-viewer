@@ -1,17 +1,16 @@
-import { app, BrowserWindow, ipcMain, session, shell } from "electron"
+import { app, BrowserWindow, ipcMain, shell } from "electron"
 import { join } from "node:path"
 
 import { addAccount, listAccounts, removeAccount } from "./account-store"
+import { deleteCredential } from "./credential-store"
+import { authenticateClaude, getClaudeUsage } from "./providers/claude"
+import { authenticateCodex, getCodexUsage } from "./providers/codex"
+import { authenticateCursor, getCursorUsage } from "./providers/cursor"
 import { PROVIDERS } from "../src/shared/providers"
-import { parseUsagePage } from "../src/shared/usage-parser"
-import type { Account, ProviderId } from "../src/shared/types"
+import type { Account, AccountUsage, ProviderId } from "../src/shared/types"
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL)
-const usageWindows = new Map<string, BrowserWindow>()
-
-function partitionName(account: Account): string {
-  return `persist:usage-viewer-${account.provider}-${account.id}`
-}
+const activeAuthentications = new Map<string, Promise<void>>()
 
 async function findAccount(accountId: string): Promise<Account> {
   const account = (await listAccounts()).find((item) => item.id === accountId)
@@ -23,93 +22,42 @@ function isProviderId(value: string): value is ProviderId {
   return value === "claude" || value === "codex" || value === "cursor"
 }
 
-function createUsageWindow(account: Account, show: boolean): BrowserWindow {
-  const existing = usageWindows.get(account.id)
-  if (existing && !existing.isDestroyed()) {
-    if (show) existing.show()
-    return existing
-  }
-
-  const definition = PROVIDERS[account.provider]
-  const window = new BrowserWindow({
-    width: 1100,
-    height: 820,
-    minWidth: 760,
-    minHeight: 600,
-    show,
-    title: `${definition.name} · ${account.label}`,
-    autoHideMenuBar: true,
-    webPreferences: {
-      partition: partitionName(account),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    const host = new URL(url).hostname
-    if (definition.loginHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          autoHideMenuBar: true,
-          webPreferences: {
-            partition: partitionName(account),
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-          },
-        },
-      }
-    }
-    void shell.openExternal(url)
-    return { action: "deny" }
-  })
-  window.on("closed", () => usageWindows.delete(account.id))
-  usageWindows.set(account.id, window)
-  return window
+async function authenticate(account: Account): Promise<void> {
+  const running = activeAuthentications.get(account.id)
+  if (running) return running
+  const operation = (async () => {
+    if (account.provider === "claude") await authenticateClaude(account.id)
+    if (account.provider === "codex") await authenticateCodex(account.id)
+    if (account.provider === "cursor") await authenticateCursor(account.id)
+  })().finally(() => activeAuthentications.delete(account.id))
+  activeAuthentications.set(account.id, operation)
+  return operation
 }
 
-async function loadUsagePage(account: Account, show: boolean): Promise<BrowserWindow> {
-  const window = createUsageWindow(account, show)
-  const definition = PROVIDERS[account.provider]
-  if (window.webContents.getURL() !== definition.usageUrl) {
-    await window.loadURL(definition.usageUrl)
-  }
-  if (show) window.show()
-  return window
-}
-
-async function refreshUsage(accountId: string) {
-  const account = await findAccount(accountId)
-  const window = await loadUsagePage(account, false)
-  await new Promise((resolve) => setTimeout(resolve, 1800))
-  const currentUrl = window.webContents.getURL()
-  const pageText = await window.webContents.executeJavaScript("document.body?.innerText ?? ''", true) as string
-  return parseUsagePage(account.provider, account.id, pageText, currentUrl)
+async function refreshUsage(account: Account): Promise<AccountUsage> {
+  if (account.provider === "claude") return getClaudeUsage(account.id)
+  if (account.provider === "codex") return getCodexUsage(account.id)
+  return getCursorUsage(account.id)
 }
 
 function registerIpc(): void {
   ipcMain.handle("accounts:list", () => listAccounts())
-  ipcMain.handle("accounts:add", async (_event, provider: string, label: string) => {
+  ipcMain.handle("accounts:add", (_event, provider: string, label: string) => {
     if (!isProviderId(provider)) throw new Error("지원하지 않는 플랫폼입니다.")
-    const account = await addAccount(provider, String(label ?? ""))
-    await loadUsagePage(account, true)
-    return account
+    return addAccount(provider, String(label ?? ""))
   })
   ipcMain.handle("accounts:remove", async (_event, accountId: string) => {
     const account = await removeAccount(accountId)
-    if (!account) return
-    const window = usageWindows.get(account.id)
-    if (window && !window.isDestroyed()) window.destroy()
-    await session.fromPartition(partitionName(account)).clearStorageData()
+    if (account) await deleteCredential(account.id)
   })
-  ipcMain.handle("accounts:open", async (_event, accountId: string) => {
+  ipcMain.handle("accounts:authenticate", async (_event, accountId: string) => {
+    await authenticate(await findAccount(accountId))
+  })
+  ipcMain.handle("accounts:portal", async (_event, accountId: string) => {
     const account = await findAccount(accountId)
-    await loadUsagePage(account, true)
+    await shell.openExternal(PROVIDERS[account.provider].usageUrl)
   })
-  ipcMain.handle("usage:refresh", (_event, accountId: string) => refreshUsage(accountId))
+  ipcMain.handle("usage:refresh", async (_event, accountId: string) => refreshUsage(await findAccount(accountId)))
 }
 
 async function createMainWindow(): Promise<void> {
@@ -134,11 +82,8 @@ async function createMainWindow(): Promise<void> {
     return { action: "deny" }
   })
 
-  if (isDevelopment) {
-    await window.loadURL(process.env.VITE_DEV_SERVER_URL!)
-  } else {
-    await window.loadFile(join(__dirname, "../../dist/index.html"))
-  }
+  if (isDevelopment) await window.loadURL(process.env.VITE_DEV_SERVER_URL!)
+  else await window.loadFile(join(__dirname, "../../dist/index.html"))
 }
 
 app.whenReady().then(async () => {

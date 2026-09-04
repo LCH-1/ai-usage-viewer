@@ -31,7 +31,8 @@ export function installDemoApi(): void {
     listAccounts: async () => accounts,
     addAccount: async (provider: ProviderId, label: string) => ({ id: `demo-${Date.now()}`, provider, label, createdAt: new Date().toISOString() }),
     removeAccount: async (_accountId: string) => undefined,
-    openAccount: async (_accountId: string) => undefined,
+    authenticateAccount: async (_accountId: string) => undefined,
+    openProviderPortal: async (_accountId: string) => undefined,
     refreshAccount: async (accountId: string) => usage[accountId] ?? sample(accountId, "demo@example.com", "PRO", []),
   }
   window.usageViewer = api

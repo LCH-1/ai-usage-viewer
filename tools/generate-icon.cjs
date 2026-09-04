@@ -3,43 +3,56 @@ const { join } = require("node:path")
 const { deflateSync } = require("node:zlib")
 
 const size = 512
+const samples = 4
 const pixels = Buffer.alloc((size * 4 + 1) * size)
 
-function insideRoundedRect(x, y, inset, radius) {
-  const left = inset
-  const top = inset
-  const right = size - inset - 1
-  const bottom = size - inset - 1
-  if (x >= left + radius && x <= right - radius) return y >= top && y <= bottom
-  if (y >= top + radius && y <= bottom - radius) return x >= left && x <= right
-  const cx = x < left + radius ? left + radius : right - radius
-  const cy = y < top + radius ? top + radius : bottom - radius
-  return (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2
+const transparent = [0, 0, 0, 0]
+const border = [44, 52, 47, 255]
+const tile = [16, 19, 17, 255]
+const dark = [11, 15, 13, 255]
+const white = [243, 248, 245, 255]
+const mint = [98, 230, 164, 255]
+const coral = [255, 118, 109, 255]
+
+function insideRoundedRect(x, y, left, top, width, height, radius) {
+  const right = left + width
+  const bottom = top + height
+  if (x < left || x > right || y < top || y > bottom) return false
+  if (x >= left + radius && x <= right - radius) return true
+  if (y >= top + radius && y <= bottom - radius) return true
+  const centerX = x < left + radius ? left + radius : right - radius
+  const centerY = y < top + radius ? top + radius : bottom - radius
+  return (x - centerX) ** 2 + (y - centerY) ** 2 <= radius ** 2
 }
 
-function isMark(x, y) {
-  if ((x >= 150 && x <= 198 || x >= 314 && x <= 362) && y >= 132 && y <= 302) return true
-  const distance = Math.hypot(x - 256, y - 300)
-  return y >= 294 && distance >= 58 && distance <= 106
+function colorAt(x, y) {
+  let color = transparent
+  if (insideRoundedRect(x, y, 18, 18, 476, 476, 104)) color = border
+  if (insideRoundedRect(x, y, 24, 24, 464, 464, 98)) color = tile
+
+  if (insideRoundedRect(x, y, 86, 128, 340, 106, 53)) color = white
+  if (insideRoundedRect(x, y, 106, 148, 300, 66, 33)) color = dark
+  if (insideRoundedRect(x, y, 118, 160, 244, 42, 21)) color = mint
+
+  if (insideRoundedRect(x, y, 86, 278, 340, 106, 53)) color = white
+  if (insideRoundedRect(x, y, 106, 298, 300, 66, 33)) color = dark
+  if (insideRoundedRect(x, y, 118, 310, 128, 42, 21)) color = coral
+  return color
 }
 
 for (let y = 0; y < size; y += 1) {
   const row = y * (size * 4 + 1)
   pixels[row] = 0
   for (let x = 0; x < size; x += 1) {
-    const index = row + 1 + x * 4
-    const outer = insideRoundedRect(x, y, 18, 104)
-    const inner = insideRoundedRect(x, y, 28, 94)
-    let rgba = [0, 0, 0, 0]
-    if (outer) rgba = inner ? [10, 13, 11, 255] : [51, 68, 58, 255]
-    if (inner && isMark(x, y)) {
-      const glow = Math.max(0, Math.min(1, (x + y) / 1024))
-      rgba = [Math.round(87 + glow * 28), Math.round(219 + glow * 20), Math.round(145 + glow * 18), 255]
+    const totals = [0, 0, 0, 0]
+    for (let sampleY = 0; sampleY < samples; sampleY += 1) {
+      for (let sampleX = 0; sampleX < samples; sampleX += 1) {
+        const color = colorAt(x + (sampleX + 0.5) / samples, y + (sampleY + 0.5) / samples)
+        for (let channel = 0; channel < 4; channel += 1) totals[channel] += color[channel]
+      }
     }
-    pixels[index] = rgba[0]
-    pixels[index + 1] = rgba[1]
-    pixels[index + 2] = rgba[2]
-    pixels[index + 3] = rgba[3]
+    const index = row + 1 + x * 4
+    for (let channel = 0; channel < 4; channel += 1) pixels[index + channel] = Math.round(totals[channel] / samples ** 2)
   }
 }
 
