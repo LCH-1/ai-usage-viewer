@@ -1,85 +1,34 @@
 {
   "name": "ai-usage-viewer",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Multi-account usage dashboard for Claude, Codex, and Cursor",
   "author": "LCH-1",
   "license": "MIT",
-  "main": "dist-electron/electron/main.js",
   "scripts": {
-    "dev": "pnpm run build:electron && concurrently -k \"vite\" \"tsc -p electron/tsconfig.json --watch\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "build:electron": "tsc -p electron/tsconfig.json",
-    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
+    "dev": "tauri dev",
+    "frontend:dev": "vite",
+    "typecheck": "tsc --noEmit",
     "test": "vitest",
-    "build": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && vitest run && vite build && tsc -p electron/tsconfig.json",
-    "package": "node tools/generate-icon.cjs && corepack pnpm run build && node tools/run-electron-builder.cjs",
-    "package:store": "node tools/generate-icon.cjs && corepack pnpm run build && node tools/run-electron-builder-store.cjs",
+    "build": "tsc --noEmit && vitest run && vite build",
+    "icons": "node tools/generate-icon.cjs && tauri icon build/icon.png -o src-tauri/icons",
+    "package": "node tools/run-tauri-builder.cjs",
     "preview": "vite preview"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1"
+  },
   "devDependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest",
+    "@tauri-apps/cli": "2.11.4",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "concurrently": "latest",
-    "cross-env": "latest",
-    "electron": "latest",
-    "electron-builder": "latest",
+    "@vitejs/plugin-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
     "typescript": "latest",
-    "vitest": "latest",
-    "wait-on": "latest"
-  },
-  "build": {
-    "appId": "com.lch1.aiusageviewer",
-    "productName": "Usage Viewer",
-    "asar": true,
-    "compression": "maximum",
-    "electronLanguages": [
-      "ko",
-      "en-US"
-    ],
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "package.json"
-    ],
-    "directories": {
-      "output": "release"
-    },
-    "win": {
-      "icon": "build/icon.png",
-      "target": [
-        "nsis",
-        "portable"
-      ]
-    },
-    "appx": {
-      "applicationId": "AIUsageViewer",
-      "identityName": "LCH-1.AIUsageViewer",
-      "publisher": "CN=3A4B4FB3-AF33-49D4-89DF-BE4A32F19AF3",
-      "publisherDisplayName": "LCH-1",
-      "displayName": "AI Usage Viewer",
-      "languages": [
-        "ko-KR",
-        "en-US"
-      ],
-      "backgroundColor": "#0B0F0D",
-      "artifactName": "AI-Usage-Viewer-Store-${version}-${arch}.${ext}"
-    },
-    "nsis": {
-      "artifactName": "Usage-Viewer-Setup-${version}-${arch}.${ext}",
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    },
-    "portable": {
-      "artifactName": "Usage-Viewer-Portable-${version}-${arch}.${ext}"
-    }
+    "vite": "latest",
+    "vitest": "latest"
   },
   "packageManager": "pnpm@10.15.1"
 }

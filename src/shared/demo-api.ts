@@ -39,7 +39,7 @@ export function installDemoApi(): void {
     removeAccount: async (_accountId: string) => undefined,
     authenticateAccount: async (_accountId: string) => undefined,
     openProviderPortal: async (_accountId: string) => undefined,
-    refreshAccount: async (accountId: string) => usage[accountId] ?? sample(accountId, "demo@example.com", "PRO", []),
+    refreshAccount: async (accountId: string, _force = false) => usage[accountId] ?? sample(accountId, "demo@example.com", "PRO", []),
   }
   window.usageViewer = api
 }

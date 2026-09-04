@@ -37,7 +37,7 @@ button { color: inherit; }
   padding: 24px 26px 18px;
 }
 
-.topbar, .account-head, .metric-head, .metric-foot, .section-head, .dialog-title, .dialog-actions, footer {
+.topbar, .account-head, .metric-head, .metric-foot, .section-head, .dialog-title, .dialog-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -79,14 +79,17 @@ button:disabled { cursor: default; opacity: .45; }
 .provider-section { min-width: 0; }
 .section-head { margin-bottom: 10px; }
 .section-title { display: flex; align-items: center; gap: 8px; }
-.provider-icon { width: 15px; height: 15px; flex: 0 0 auto; color: currentColor; }
-.claude-icon { color: #d97757; }
-.claude-icon path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.8; }
-.codex-icon { color: #6ee7b7; }
-.codex-icon path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.55; }
-.cursor-icon { color: #a78bfa; }
-.cursor-shell { fill: currentColor; opacity: .28; stroke: currentColor; stroke-width: 1.4; }
-.cursor-pointer { fill: currentColor; stroke: #0c0e0d; stroke-linejoin: round; stroke-width: 1.2; }
+.provider-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+}
+.provider-icon img { display: block; max-width: none; object-fit: contain; }
+.claude-icon img { width: 18px; height: 18px; }
+.codex-icon img { width: 18px; height: 18px; }
+.cursor-icon img { width: 16px; height: 18px; }
 .provider-dot { width: 8px; height: 8px; border-radius: 99px; box-shadow: 0 0 14px currentColor; }
 .provider-dot.large { width: 10px; height: 10px; }
 .count, .plan {
@@ -112,11 +115,11 @@ button:disabled { cursor: default; opacity: .45; }
   background: linear-gradient(145deg, rgba(18,20,18,.96), rgba(12,13,12,.98));
   box-shadow: 0 18px 44px rgba(0,0,0,.18), inset 0 1px rgba(255,255,255,.025);
 }
-.account-head { align-items: flex-start; gap: 8px; }
-.identity { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.account-head { align-items: center; gap: 8px; }
+.identity { min-width: 0; flex: 1; }
 .identity-primary { display: flex; align-items: center; min-width: 0; gap: 7px; }
-.identity strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.account-email { overflow: hidden; color: #747d77; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.identity strong { overflow: hidden; min-width: 0; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.account-email { overflow: hidden; min-width: 0; color: #747d77; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .card-actions { flex-shrink: 0; gap: 3px; }
 .icon-button {
   display: grid;
@@ -127,8 +130,10 @@ button:disabled { cursor: default; opacity: .45; }
   background: transparent;
   color: #747d77;
   font-size: 18px;
+  line-height: 0;
 }
 .icon-button:hover { background: #202320; color: #e6eae7; }
+.action-icon { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.65; }
 .danger-text:hover { color: #fb7185; }
 
 .metrics {
@@ -244,16 +249,17 @@ input:focus { border-color: #617269; }
 .field-help { margin: 7px 0 20px; color: #616963; font-size: 9px; }
 .dialog-actions { justify-content: flex-end; gap: 8px; }
 .edit-account-provider { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid #292d2a; border-radius: 10px; background: #151715; }
-.edit-account-provider .provider-icon { width: 18px; height: 18px; }
-.edit-account-provider div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.edit-account-provider .provider-icon { width: 22px; height: 22px; }
+.edit-account-provider div { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .edit-account-provider strong { font-size: 11px; }
 .edit-account-provider span { overflow: hidden; color: #747d77; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-link-button { display: flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid #303531; border-radius: 8px; background: #1b1e1c; color: #aeb6b1; font-size: 10px; font-weight: 700; }
+.provider-link-button:hover { background: #242825; color: #f1f4f2; }
 .split-actions { justify-content: space-between; margin-top: 22px; }
 .split-actions > div { display: flex; gap: 8px; }
 .danger-button { min-height: 38px; padding: 0 12px; border: 1px solid #4a292e; border-radius: 10px; background: #201315; color: #ff9aa7; font-size: 11px; font-weight: 700; }
 .danger-button:hover { background: #2b171a; }
 
-footer { margin-top: 22px; padding-top: 12px; border-top: 1px solid #171a18; color: #4d544f; font-size: 9px; }
 .spin { display: inline-block; animation: rotate .8s linear infinite; }
 @keyframes rotate { to { transform: rotate(360deg); } }
 
@@ -263,5 +269,5 @@ footer { margin-top: 22px; padding-top: 12px; border-top: 1px solid #171a18; col
   .top-actions { flex-direction: column-reverse; align-items: stretch; }
   .top-actions button { width: 100%; }
   .metrics { grid-template-columns: 1fr; }
-  footer { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .provider-link-button { padding: 0 7px; }
 }
