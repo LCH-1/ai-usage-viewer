@@ -79,6 +79,14 @@ button:disabled { cursor: default; opacity: .45; }
 .provider-section { min-width: 0; }
 .section-head { margin-bottom: 10px; }
 .section-title { display: flex; align-items: center; gap: 8px; }
+.provider-icon { width: 15px; height: 15px; flex: 0 0 auto; color: currentColor; }
+.claude-icon { color: #d97757; }
+.claude-icon path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.8; }
+.codex-icon { color: #6ee7b7; }
+.codex-icon path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.55; }
+.cursor-icon { color: #a78bfa; }
+.cursor-shell { fill: currentColor; opacity: .28; stroke: currentColor; stroke-width: 1.4; }
+.cursor-pointer { fill: currentColor; stroke: #0c0e0d; stroke-linejoin: round; stroke-width: 1.2; }
 .provider-dot { width: 8px; height: 8px; border-radius: 99px; box-shadow: 0 0 14px currentColor; }
 .provider-dot.large { width: 10px; height: 10px; }
 .count, .plan {
@@ -235,6 +243,15 @@ input {
 input:focus { border-color: #617269; }
 .field-help { margin: 7px 0 20px; color: #616963; font-size: 9px; }
 .dialog-actions { justify-content: flex-end; gap: 8px; }
+.edit-account-provider { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid #292d2a; border-radius: 10px; background: #151715; }
+.edit-account-provider .provider-icon { width: 18px; height: 18px; }
+.edit-account-provider div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.edit-account-provider strong { font-size: 11px; }
+.edit-account-provider span { overflow: hidden; color: #747d77; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.split-actions { justify-content: space-between; margin-top: 22px; }
+.split-actions > div { display: flex; gap: 8px; }
+.danger-button { min-height: 38px; padding: 0 12px; border: 1px solid #4a292e; border-radius: 10px; background: #201315; color: #ff9aa7; font-size: 11px; font-weight: 700; }
+.danger-button:hover { background: #2b171a; }
 
 footer { margin-top: 22px; padding-top: 12px; border-top: 1px solid #171a18; color: #4d544f; font-size: 9px; }
 .spin { display: inline-block; animation: rotate .8s linear infinite; }

@@ -33,13 +33,35 @@ function Metric({ metric }: { metric: UsageMetric }) {
   )
 }
 
-function AccountCard({ account, onRefresh, onAuthenticate, onPortal, onRename, onRemove }: {
+function ProviderIcon({ provider }: { provider: ProviderId }) {
+  if (provider === "claude") {
+    return (
+      <svg className="provider-icon claude-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2.5v19M2.5 12h19M5.3 5.3l13.4 13.4M18.7 5.3 5.3 18.7M8.2 3.3l7.6 17.4M20.7 8.2 3.3 15.8M15.8 3.3 8.2 20.7M20.7 15.8 3.3 8.2" />
+      </svg>
+    )
+  }
+  if (provider === "codex") {
+    return (
+      <svg className="provider-icon codex-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3.1a4.45 4.45 0 0 1 7.9 2.8 4.45 4.45 0 0 1 1 8.3 4.45 4.45 0 0 1-6.9 5.5 4.45 4.45 0 0 1-7.9-2.8 4.45 4.45 0 0 1-1-8.3A4.45 4.45 0 0 1 12 3.1Z" />
+        <path d="m8.1 8.4 3.9-2.2 3.9 2.2v4.5L12 15.2 8.1 13Z" />
+      </svg>
+    )
+  }
+  return (
+    <svg className="provider-icon cursor-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path className="cursor-shell" d="M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4Z" />
+      <path className="cursor-pointer" d="m8 6.7 8.8 5.1-4.1 1.2-1.2 4.2Z" />
+    </svg>
+  )
+}
+
+function AccountCard({ account, onAuthenticate, onPortal, onEdit }: {
   account: AccountView
-  onRefresh: (id: string) => void
   onAuthenticate: (id: string) => void
   onPortal: (id: string) => void
-  onRename: (id: string) => void
-  onRemove: (id: string) => void
+  onEdit: (id: string) => void
 }) {
   const plan = account.usage?.plan
   return (
@@ -53,13 +75,9 @@ function AccountCard({ account, onRefresh, onAuthenticate, onPortal, onRename, o
           {account.usage?.email ? <span className="account-email" title={account.usage.email}>{account.usage.email}</span> : null}
         </div>
         <div className="card-actions">
-          <button className="icon-button" onClick={() => onAuthenticate(account.id)} disabled={account.loading} title="기본 브라우저에서 로그인">◇</button>
+          {!account.usage ? <button className="icon-button" onClick={() => onAuthenticate(account.id)} disabled={account.loading} title="기본 브라우저에서 로그인">◇</button> : null}
           <button className="icon-button" onClick={() => onPortal(account.id)} title="사용량 페이지 열기">↗</button>
-          <button className="icon-button" onClick={() => onRefresh(account.id)} disabled={account.loading} title="새로고침">
-            <span className={account.loading ? "spin" : ""}>↻</span>
-          </button>
-          <button className="icon-button" onClick={() => onRename(account.id)} title="계정 이름 변경">✎</button>
-          <button className="icon-button danger-text" onClick={() => onRemove(account.id)} title="계정 제거">×</button>
+          <button className="icon-button" onClick={() => onEdit(account.id)} title="계정 수정">✎</button>
         </div>
       </div>
 
@@ -69,18 +87,73 @@ function AccountCard({ account, onRefresh, onAuthenticate, onPortal, onRename, o
         <div className="metrics">
           {account.usage.metrics.map((metric) => <Metric key={metric.id} metric={metric} />)}
         </div>
-      ) : !account.error && !account.loading ? (
+      ) : !account.usage && !account.error && !account.loading ? (
         <button className="login-callout" onClick={() => onAuthenticate(account.id)}>
           기본 브라우저에서 이 계정으로 로그인하기
         </button>
       ) : null}
-      {account.loading ? <div className="auth-progress"><div className="loader small" />브라우저 로그인 또는 사용량 확인 중</div> : null}
+      {account.loading && !account.usage ? <div className="auth-progress"><div className="loader small" />브라우저 로그인 또는 사용량 확인 중</div> : null}
       {account.usage ? (
         <time className="updated" dateTime={account.usage.fetchedAt}>
           {new Date(account.usage.fetchedAt).toLocaleString("ko-KR")} 확인
         </time>
       ) : null}
     </article>
+  )
+}
+
+function EditAccountDialog({ account, onClose, onSave, onRemove }: {
+  account: AccountView
+  onClose: () => void
+  onSave: (accountId: string, label: string) => Promise<boolean>
+  onRemove: (accountId: string) => Promise<boolean>
+}) {
+  const [label, setLabel] = useState(account.label)
+  const [saving, setSaving] = useState(false)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    const nextLabel = label.trim()
+    if (!nextLabel) return
+    setSaving(true)
+    try {
+      if (await onSave(account.id, nextLabel)) onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function remove() {
+    setSaving(true)
+    try {
+      if (await onRemove(account.id)) onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <form className="dialog" onSubmit={submit}>
+        <div className="dialog-title">
+          <div><span className="eyebrow">EDIT ACCOUNT</span><h2>계정 수정</h2></div>
+          <button type="button" className="icon-button" onClick={onClose}>×</button>
+        </div>
+        <div className="edit-account-provider">
+          <ProviderIcon provider={account.provider} />
+          <div><strong>{PROVIDERS[account.provider].name}</strong>{account.usage?.email ? <span>{account.usage.email}</span> : null}</div>
+        </div>
+        <label className="field-label" htmlFor="edit-account-label">계정 이름</label>
+        <input id="edit-account-label" value={label} onChange={(event) => setLabel(event.target.value)} autoFocus />
+        <div className="dialog-actions split-actions">
+          <button type="button" className="danger-button" onClick={() => void remove()} disabled={saving}>계정 삭제</button>
+          <div>
+            <button type="button" className="secondary-button" onClick={onClose}>취소</button>
+            <button type="submit" className="primary-button" disabled={saving || !label.trim()}>저장</button>
+          </div>
+        </div>
+      </form>
+    </div>
   )
 }
 
@@ -137,6 +210,7 @@ export function App() {
   const [accounts, setAccounts] = useState<AccountView[]>(EMPTY_ACCOUNTS)
   const [ready, setReady] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null)
   const [refreshingAll, setRefreshingAll] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
 
@@ -179,7 +253,7 @@ export function App() {
 
   useEffect(() => {
     if (!ready || accounts.length === 0) return
-    const timer = window.setInterval(() => accounts.forEach((account) => void refreshAccount(account.id)), 5 * 60 * 1000)
+    const timer = window.setInterval(() => accounts.forEach((account) => void refreshAccount(account.id)), 10 * 1000)
     return () => window.clearInterval(timer)
   }, [accounts.length, ready, refreshAccount])
 
@@ -205,36 +279,38 @@ export function App() {
     setRefreshingAll(false)
   }
 
-  async function remove(id: string) {
+  async function remove(id: string): Promise<boolean> {
     const account = accounts.find((item) => item.id === id)
-    if (!account || !window.confirm(`${account.label} 계정과 암호화된 로그인 정보를 제거할까요?`)) return
+    if (!account || !window.confirm(`${account.label} 계정과 암호화된 로그인 정보를 제거할까요?`)) return false
     try {
       await window.usageViewer.removeAccount(id)
       setAccounts((current) => current.filter((item) => item.id !== id))
+      return true
     } catch (error) {
       setBanner(readableError(error))
+      return false
     }
   }
 
-  async function rename(id: string) {
-    const account = accounts.find((item) => item.id === id)
-    if (!account) return
-    const label = window.prompt("새 계정 이름", account.label)?.trim()
-    if (!label || label === account.label) return
+  async function rename(id: string, label: string): Promise<boolean> {
     try {
       const renamed = await window.usageViewer.renameAccount(id, label)
       setAccounts((current) => current.map((item) => item.id === id ? { ...item, label: renamed.label } : item))
+      return true
     } catch (error) {
       setBanner(readableError(error))
+      return false
     }
   }
+
+  const editingAccount = editingAccountId ? accounts.find((account) => account.id === editingAccountId) ?? null : null
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><img src="./icon.png" alt="" /></div><div><span className="eyebrow">AI LIMITS</span><h1>Usage Viewer</h1></div></div>
         <div className="top-actions">
-          <button className="secondary-button compact" onClick={refreshAll} disabled={!accounts.length || refreshingAll}><span className={refreshingAll ? "spin" : ""}>↻</span> 전체 새로고침</button>
+          <button className="secondary-button compact" onClick={refreshAll} disabled={!accounts.length || refreshingAll}><span className={refreshingAll ? "spin" : ""}>↻</span> 새로고침</button>
           <button className="primary-button compact" onClick={() => setDialogOpen(true)}>＋ 계정</button>
         </div>
       </header>
@@ -251,19 +327,19 @@ export function App() {
         {grouped.map(({ provider, accounts: providerAccounts }) => (
           <section className="provider-section" key={provider}>
             <div className="section-head">
-              <div className="section-title"><span className="provider-dot large" style={{ background: PROVIDERS[provider].color }} /><h2>{PROVIDERS[provider].name}</h2><span className="count">{providerAccounts.length}개</span></div>
-              <button className="text-button" onClick={() => setDialogOpen(true)}>계정 추가</button>
+              <div className="section-title"><ProviderIcon provider={provider} /><h2>{PROVIDERS[provider].name}</h2><span className="count">{providerAccounts.length}개</span></div>
             </div>
             <div className="cards">
               {providerAccounts.map((account) => (
-                <AccountCard key={account.id} account={account} onRefresh={(id) => void refreshAccount(id)} onAuthenticate={(id) => void authenticateAccount(id)} onPortal={(id) => void window.usageViewer.openProviderPortal(id)} onRename={(id) => void rename(id)} onRemove={(id) => void remove(id)} />
+                <AccountCard key={account.id} account={account} onAuthenticate={(id) => void authenticateAccount(id)} onPortal={(id) => void window.usageViewer.openProviderPortal(id)} onEdit={setEditingAccountId} />
               ))}
             </div>
           </section>
         ))}
       </div>
-      <footer><span>로그인 토큰은 계정별로 Windows 암호화 저장소에 보관됩니다.</span><span>5분마다 자동 갱신</span></footer>
+      <footer><span>로그인 토큰은 계정별로 Windows 암호화 저장소에 보관됩니다.</span><span>10초마다 자동 갱신</span></footer>
       <AddAccountDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={addNewAccount} />
+      {editingAccount ? <EditAccountDialog key={editingAccount.id} account={editingAccount} onClose={() => setEditingAccountId(null)} onSave={rename} onRemove={remove} /> : null}
     </main>
   )
 }

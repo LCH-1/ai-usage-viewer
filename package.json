@@ -1,6 +1,6 @@
 {
   "name": "ai-usage-viewer",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Multi-account usage dashboard for Claude, Codex, and Cursor",
   "author": "LCH-1",
@@ -37,6 +37,11 @@
     "appId": "com.lch1.aiusageviewer",
     "productName": "Usage Viewer",
     "asar": true,
+    "compression": "maximum",
+    "electronLanguages": [
+      "ko",
+      "en-US"
+    ],
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
