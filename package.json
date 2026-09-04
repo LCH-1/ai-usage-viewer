@@ -1,6 +1,6 @@
 {
   "name": "ai-usage-viewer",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "private": true,
   "description": "Multi-account usage dashboard for Claude, Codex, and Cursor",
   "author": "LCH-1",
@@ -13,6 +13,7 @@
     "test": "vitest",
     "build": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && vitest run && vite build && tsc -p electron/tsconfig.json",
     "package": "node tools/generate-icon.cjs && corepack pnpm run build && node tools/run-electron-builder.cjs",
+    "package:store": "node tools/generate-icon.cjs && corepack pnpm run build && node tools/run-electron-builder-store.cjs",
     "preview": "vite preview"
   },
   "dependencies": {},
@@ -50,6 +51,19 @@
         "nsis",
         "portable"
       ]
+    },
+    "appx": {
+      "applicationId": "AIUsageViewer",
+      "identityName": "LCH-1.AIUsageViewer",
+      "publisher": "CN=3A4B4FB3-AF33-49D4-89DF-BE4A32F19AF3",
+      "publisherDisplayName": "LCH-1",
+      "displayName": "AI Usage Viewer",
+      "languages": [
+        "ko-KR",
+        "en-US"
+      ],
+      "backgroundColor": "#0B0F0D",
+      "artifactName": "AI-Usage-Viewer-Store-${version}-${arch}.${ext}"
     },
     "nsis": {
       "artifactName": "Usage-Viewer-Setup-${version}-${arch}.${ext}",
