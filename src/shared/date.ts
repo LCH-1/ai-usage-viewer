@@ -18,5 +18,17 @@ export function formatResetDate(value: unknown): string | null {
 
 export function formatResetDateTime(value: unknown): string | null {
   const date = parseTimestamp(value)
-  return date ? `${date.toLocaleString("ko-KR")} 초기화` : null
+  return date ? `${formatDateTime(date)} 초기화` : null
+}
+
+export function formatDateTime(value: unknown): string | null {
+  const date = value instanceof Date ? value : parseTimestamp(value)
+  if (!date) return null
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date)
 }

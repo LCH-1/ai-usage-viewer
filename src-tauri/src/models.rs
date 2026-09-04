@@ -1,3 +1,4 @@
+use chrono::{Datelike, Local, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -97,4 +98,33 @@ pub enum ProviderCredential {
 
 pub fn clamp_percent(value: f64) -> f64 {
     value.clamp(0.0, 100.0)
+}
+
+pub fn format_local_reset(timestamp_millis: i64) -> String {
+    let date = Local
+        .timestamp_millis_opt(timestamp_millis)
+        .single()
+        .unwrap();
+    let (is_pm, hour) = date.hour12();
+    let period = if is_pm { "오후" } else { "오전" };
+    format!(
+        "{}. {}. {}. {period} {hour}:{:02} 초기화",
+        date.year(),
+        date.month(),
+        date.day(),
+        date.minute()
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_local_reset;
+
+    #[test]
+    fn reset_time_omits_seconds() {
+        assert_eq!(
+            format_local_reset(1_767_225_610_000).matches(':').count(),
+            1
+        );
+    }
 }

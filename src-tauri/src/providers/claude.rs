@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -83,10 +83,7 @@ async fn refresh_credential(credential: ClaudeOauth) -> Result<(ClaudeOauth, boo
 
 fn reset_text(value: Option<&str>) -> Option<String> {
     let date = DateTime::parse_from_rfc3339(value?).ok()?;
-    Some(format!(
-        "{} 초기화",
-        date.with_timezone(&Local).format("%Y. %-m. %-d. %H:%M:%S")
-    ))
+    Some(crate::models::format_local_reset(date.timestamp_millis()))
 }
 
 fn metric(id: &str, label: &str, window: Option<&Value>) -> Option<UsageMetric> {

@@ -40,7 +40,7 @@ impl CodexServer {
             notifications: VecDeque::new(),
         };
         server.request("initialize", json!({
-            "clientInfo": { "name": "ai-usage-viewer", "title": "Usage Viewer", "version": "0.1.4" },
+            "clientInfo": { "name": "ai-usage-viewer", "title": "Usage Viewer", "version": "0.1.5" },
             "capabilities": { "experimentalApi": false }
         })).await?;
         server.notify("initialized", Value::Null).await?;
@@ -133,7 +133,7 @@ impl CodexServer {
 fn reset_text(timestamp: Option<f64>) -> Option<String> {
     let timestamp = timestamp?;
     let date = Local.timestamp_opt(timestamp as i64, 0).single()?;
-    Some(format!("{} 초기화", date.format("%Y. %-m. %-d. %H:%M:%S")))
+    Some(crate::models::format_local_reset(date.timestamp_millis()))
 }
 
 fn window_metric(id: &str, fallback: &str, window: Option<&Value>) -> Option<UsageMetric> {

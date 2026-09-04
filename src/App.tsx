@@ -1,9 +1,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 
+import { formatDateTime } from "./shared/date"
 import { PROVIDERS, PROVIDER_ORDER } from "./shared/providers"
 import type { Account, AccountView, ProviderId, UsageMetric } from "./shared/types"
 
 const EMPTY_ACCOUNTS: AccountView[] = []
+const applicationWindow = getCurrentWindow()
 
 function toView(account: Account): AccountView {
   return { ...account, usage: null, error: null, loading: false }
@@ -52,6 +55,19 @@ function ExternalLinkIcon() {
   return <svg className="action-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M11 4h5v5M16 4l-7 7M15 11v3.2a1.8 1.8 0 0 1-1.8 1.8H5.8A1.8 1.8 0 0 1 4 14.2V6.8A1.8 1.8 0 0 1 5.8 5H9" /></svg>
 }
 
+function WindowTitlebar() {
+  return (
+    <div className="window-titlebar" data-tauri-drag-region onDoubleClick={() => void applicationWindow.toggleMaximize()}>
+      <div className="window-title" data-tauri-drag-region><img src="./icon.png" alt="" /><span data-tauri-drag-region>Usage Viewer</span></div>
+      <div className="window-controls">
+        <button type="button" onDoubleClick={(event) => event.stopPropagation()} onClick={() => void applicationWindow.minimize()} title="최소화" aria-label="최소화"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 8.5h8" /></svg></button>
+        <button type="button" onDoubleClick={(event) => event.stopPropagation()} onClick={() => void applicationWindow.toggleMaximize()} title="최대화" aria-label="최대화"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7" rx=".5" /></svg></button>
+        <button type="button" className="window-close" onDoubleClick={(event) => event.stopPropagation()} onClick={() => void applicationWindow.close()} title="닫기" aria-label="닫기"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 2.5 7 7m0-7-7 7" /></svg></button>
+      </div>
+    </div>
+  )
+}
+
 function AccountCard({ account, onAuthenticate, onEdit }: {
   account: AccountView
   onAuthenticate: (id: string) => void
@@ -69,6 +85,7 @@ function AccountCard({ account, onAuthenticate, onEdit }: {
           </div>
         </div>
         <div className="card-actions">
+          {account.usage ? <time className="updated" dateTime={account.usage.fetchedAt}>{formatDateTime(account.usage.fetchedAt)} 확인</time> : null}
           {!account.usage ? <button className="icon-button" onClick={() => onAuthenticate(account.id)} disabled={account.loading} title="기본 브라우저에서 로그인"><LoginIcon /></button> : null}
           <button className="icon-button" onClick={() => onEdit(account.id)} title="계정 수정"><EditIcon /></button>
         </div>
@@ -86,11 +103,6 @@ function AccountCard({ account, onAuthenticate, onEdit }: {
         </button>
       ) : null}
       {account.loading && !account.usage ? <div className="auth-progress"><div className="loader small" />브라우저 로그인 또는 사용량 확인 중</div> : null}
-      {account.usage ? (
-        <time className="updated" dateTime={account.usage.fetchedAt}>
-          {new Date(account.usage.fetchedAt).toLocaleString("ko-KR")} 확인
-        </time>
-      ) : null}
     </article>
   )
 }
@@ -301,7 +313,9 @@ export function App() {
   const editingAccount = editingAccountId ? accounts.find((account) => account.id === editingAccountId) ?? null : null
 
   return (
-    <main className="app-shell">
+    <div className="app-frame">
+      <WindowTitlebar />
+      <main className="app-shell">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><img src="./icon.png" alt="" /></div><div><span className="eyebrow">AI LIMITS</span><h1>Usage Viewer</h1></div></div>
         <div className="top-actions">
@@ -334,6 +348,7 @@ export function App() {
       </div>
       <AddAccountDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={addNewAccount} />
       {editingAccount ? <EditAccountDialog key={editingAccount.id} account={editingAccount} onClose={() => setEditingAccountId(null)} onSave={rename} onRemove={remove} onPortal={(id) => void window.usageViewer.openProviderPortal(id)} /> : null}
-    </main>
+      </main>
+    </div>
   )
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { parseClaudeUsageMetrics } from "./claude-usage"
-import { formatResetDate, parseTimestamp } from "./date"
+import { formatDateTime, formatResetDate, parseTimestamp } from "./date"
 
 describe("parseClaudeUsageMetrics", () => {
   it("keeps legacy limits and adds scoped Fable usage", () => {
@@ -43,5 +43,11 @@ describe("Cursor reset timestamp", () => {
   it("accepts ISO dates and rejects malformed values", () => {
     expect(formatResetDate("2026-10-01T00:00:00Z")).toContain("초기화")
     expect(formatResetDate("not-a-date")).toBeNull()
+  })
+})
+
+describe("display timestamp", () => {
+  it("omits seconds", () => {
+    expect(formatDateTime("2026-09-04T09:15:10Z")?.match(/:/g)).toHaveLength(1)
   })
 })
