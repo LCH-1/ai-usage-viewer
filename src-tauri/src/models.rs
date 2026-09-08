@@ -45,17 +45,19 @@ impl ProviderId {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageMetric {
     pub id: String,
     pub label: String,
     pub used_percent: f64,
     pub reset_text: Option<String>,
+    #[serde(default)]
+    pub resets_at: Option<String>,
     pub detail: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountUsage {
     pub account_id: String,
@@ -65,6 +67,80 @@ pub struct AccountUsage {
     pub fetched_at: String,
     pub source_url: String,
     pub warning: Option<String>,
+    #[serde(default)]
+    pub checked_at: Option<String>,
+    #[serde(default)]
+    pub next_retry_at: Option<String>,
+    #[serde(default)]
+    pub stale: bool,
+    #[serde(default)]
+    pub error: Option<ProviderError>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderError {
+    pub code: String,
+    pub message: String,
+    pub retry_at: Option<String>,
+    pub endpoint: Option<String>,
+    pub status: Option<u16>,
+}
+
+impl ProviderError {
+    pub fn new(code: &str, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retry_at: None,
+            endpoint: None,
+            status: None,
+        }
+    }
+
+    pub fn auth_required(message: impl Into<String>) -> Self {
+        Self::new("authRequired", message)
+    }
+
+    pub fn temporary(message: impl Into<String>) -> Self {
+        Self::new("temporary", message)
+    }
+
+    pub fn cancelled() -> Self {
+        Self::new("cancelled", "작업이 취소되었습니다.")
+    }
+}
+
+impl From<String> for ProviderError {
+    fn from(message: String) -> Self {
+        Self::new("internal", message)
+    }
+}
+
+impl From<&str> for ProviderError {
+    fn from(message: &str) -> Self {
+        Self::new("internal", message)
+    }
+}
+
+impl std::fmt::Display for ProviderError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ProviderError {}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UsageSnapshot {
+    pub usage: Option<AccountUsage>,
+    pub failure_count: u32,
+    pub retry_at: Option<String>,
+    pub last_error: Option<ProviderError>,
+    pub checked_at: Option<String>,
+    pub poll_interval_seconds: u64,
+    pub successful_refreshes: u32,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
 
 use tokio::process::{Child, Command};
+
+use crate::models::ProviderError;
 
 async fn first_existing(candidates: Vec<Option<PathBuf>>) -> Option<PathBuf> {
     for candidate in candidates.into_iter().flatten() {
@@ -84,24 +87,35 @@ pub async fn find_codex_executable() -> Result<PathBuf, String> {
     .ok_or("Codex CLI를 찾을 수 없습니다. Codex CLI를 설치하고 다시 시도하세요.".into())
 }
 
-pub async fn run_claude_login(executable: &Path, config_directory: &Path) -> Result<(), String> {
-    let status = Command::new(executable)
+pub async fn run_claude_login(
+    executable: &Path,
+    config_directory: &Path,
+) -> Result<(), ProviderError> {
+    let mut child = Command::new(executable)
         .args(["auth", "login", "--claudeai"])
         .env("CLAUDE_CONFIG_DIR", config_directory)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
         .creation_flags_if_windows()
-        .status()
+        .spawn()
+        .map_err(|_| ProviderError::temporary("Claude 로그인 프로세스를 실행하지 못했습니다."))?;
+    let status = tokio::time::timeout(Duration::from_secs(5 * 60), child.wait())
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|_| {
+            ProviderError::temporary("Claude 로그인 시간이 초과되었습니다. 다시 시도하세요.")
+        })?
+        .map_err(|_| {
+            ProviderError::temporary("Claude 로그인 프로세스의 완료를 확인하지 못했습니다.")
+        })?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!(
+        Err(ProviderError::auth_required(format!(
             "Claude 로그인 프로세스가 종료 코드 {}로 끝났습니다.",
             status.code().unwrap_or(-1)
-        ))
+        )))
     }
 }
 
@@ -112,6 +126,7 @@ pub fn spawn_codex(executable: &Path, codex_home: &Path) -> Result<Child, String
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        .kill_on_drop(true)
         .creation_flags_if_windows()
         .spawn()
         .map_err(|error| error.to_string())

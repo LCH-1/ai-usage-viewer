@@ -1,4 +1,5 @@
 import type { Account, AccountUsage, ProviderId } from "./types"
+import { version } from "../../package.json"
 
 const accounts: Account[] = [
   { id: "claude-personal", provider: "claude", label: "claude.one@example.com", createdAt: "2026-09-03T00:00:00Z" },
@@ -19,8 +20,12 @@ function sample(accountId: string, email: string, plan: string, metrics: Array<[
     accountId,
     email,
     plan,
-    metrics: metrics.map(([id, label, usedPercent, resetText]) => ({ id, label, usedPercent, resetText, detail: null })),
+    metrics: metrics.map(([id, label, usedPercent, resetText]) => ({ id, label, usedPercent, resetText, resetsAt: null, detail: null })),
     fetchedAt: "2026-09-03T10:00:00Z",
+    checkedAt: "2026-09-03T10:00:00Z",
+    nextRetryAt: null,
+    stale: false,
+    error: null,
     sourceUrl: "demo",
     warning: null,
   }
@@ -28,7 +33,11 @@ function sample(accountId: string, email: string, plan: string, metrics: Array<[
 
 export function installDemoApi(): void {
   const api = {
+    showMainWindow: async () => { window.location.search = "?demo" },
+    hideWidget: async () => undefined,
+    getAppVersion: async () => version,
     listAccounts: async () => accounts,
+    getCachedUsage: async (accountId: string) => usage[accountId] ?? null,
     addAccount: async (provider: ProviderId, label: string) => ({ id: `demo-${Date.now()}`, provider, label, createdAt: new Date().toISOString() }),
     renameAccount: async (accountId: string, label: string) => {
       const account = accounts.find((item) => item.id === accountId)
@@ -38,6 +47,7 @@ export function installDemoApi(): void {
     },
     removeAccount: async (_accountId: string) => undefined,
     authenticateAccount: async (_accountId: string) => undefined,
+    cancelAuthentication: async (_accountId: string) => undefined,
     openProviderPortal: async (_accountId: string) => undefined,
     checkForUpdate: async () => ({ currentVersion: "0.1.6", latestVersion: "0.1.7", releaseUrl: "https://github.com/LCH-1/ai-usage-viewer/releases/latest", available: true }),
     openLatestRelease: async () => undefined,

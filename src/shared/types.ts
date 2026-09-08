@@ -12,7 +12,16 @@ export interface UsageMetric {
   label: string
   usedPercent: number
   resetText: string | null
+  resetsAt: string | null
   detail: string | null
+}
+
+export interface ProviderError {
+  code: string
+  message: string
+  retryAt: string | null
+  endpoint: string | null
+  status: number | null
 }
 
 export interface AccountUsage {
@@ -21,6 +30,10 @@ export interface AccountUsage {
   plan: string | null
   metrics: UsageMetric[]
   fetchedAt: string
+  checkedAt: string | null
+  nextRetryAt: string | null
+  stale: boolean
+  error: ProviderError | null
   sourceUrl: string
   warning: string | null
 }
@@ -34,6 +47,9 @@ export interface UpdateInfo {
 
 export interface AccountView extends Account {
   usage: AccountUsage | null
-  error: string | null
-  loading: boolean
+  error: ProviderError | null
+  refreshing: boolean
+  authenticating: boolean
+  cancelling: boolean
+  removing: boolean
 }

@@ -1,6 +1,6 @@
 {
   "name": "ai-usage-viewer",
-  "version": "0.1.6",
+  "version": "0.1.10",
   "private": true,
   "description": "Multi-account usage dashboard for Claude, Codex, and Cursor",
   "author": "LCH-1",
@@ -13,6 +13,7 @@
     "build": "tsc --noEmit && vitest run && vite build",
     "icons": "node tools/generate-icon.cjs && tauri icon build/icon.png -o src-tauri/icons",
     "package": "node tools/run-tauri-builder.cjs",
+    "package:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/build-store.ps1",
     "preview": "vite preview"
   },
   "dependencies": {

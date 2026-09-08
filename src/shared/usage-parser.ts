@@ -59,6 +59,7 @@ function extractMetric(lines: string[], rule: MetricRule): UsageMetric | null {
         label: rule.label,
         usedPercent: clampPercent(Number(percent[1])),
         resetText: extractReset(lines, index),
+        resetsAt: null,
         detail: line,
       }
     }
@@ -72,6 +73,7 @@ function extractMetric(lines: string[], rule: MetricRule): UsageMetric | null {
         label: rule.label,
         usedPercent: limit > 0 ? clampPercent((used / limit) * 100) : 0,
         resetText: extractReset(lines, index),
+        resetsAt: null,
         detail: `$${used} / $${limit}`,
       }
     }
@@ -98,6 +100,10 @@ export function parseUsagePage(provider: ProviderId, accountId: string, text: st
     plan: extractPlan(text),
     metrics,
     fetchedAt: new Date().toISOString(),
+    checkedAt: null,
+    nextRetryAt: null,
+    stale: false,
+    error: null,
     sourceUrl,
     warning: metrics.length === 0 ? "사용량 항목을 찾지 못했습니다. 계정 페이지를 열어 로그인 상태와 화면을 확인해 주세요." : null,
   }

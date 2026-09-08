@@ -1,0 +1,33 @@
+body:has(.usage-widget) { min-width: 0; }
+.usage-widget { display: flex; height: 100%; flex-direction: column; overflow: hidden; border: 1px solid #303832; border-radius: 14px; background: #0d100e; }
+.widget-header { display: flex; min-height: 49px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid #242b26; }
+.widget-brand, .widget-actions { display: flex; min-width: 0; align-items: center; gap: 7px; }
+.widget-brand img { width: 19px; height: 19px; border-radius: 5px; }
+.widget-brand strong { font-size: 12px; }
+.widget-brand > span { color: #737e76; font-size: 10px; }
+.widget-actions { flex-shrink: 0; gap: 2px; }
+.widget-body { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; padding: 12px; }
+.widget-account { padding: 12px; border: 1px solid #262e28; border-radius: 11px; background: #121713; }
+.widget-account + .widget-account { margin-top: 8px; }
+.widget-account-head { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
+.widget-account-head > img { width: 17px; height: 17px; flex: 0 0 auto; object-fit: contain; }
+.widget-account-head > strong { min-width: 0; flex: 1; overflow: hidden; color: #e6ece8; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.widget-account-head .plan { flex: 0 0 auto; }
+.widget-metrics { display: grid; gap: 10px; }
+.widget-metric { display: grid; grid-template-columns: 66px minmax(0, 1fr) 34px; align-items: center; gap: 8px; }
+.widget-metric-label { overflow: hidden; color: #8c9990; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.widget-metric > strong { color: #eef5f0; font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+.widget-metric .track { height: 5px; }
+.widget-no-usage { color: #869389; font-size: 11px; line-height: 1.5; }
+.widget-empty { display: flex; min-height: 120px; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 12px; color: #8b978f; font-size: 12px; line-height: 1.6; text-align: center; }
+.widget-footer { flex: 0 0 auto; border-top: 1px solid #242b26; }
+.widget-footer > button { display: flex; width: 100%; min-height: 42px; align-items: center; justify-content: space-between; padding: 0 17px; background: #141b16; color: #c5e1ce; font-size: 11px; font-weight: 650; }
+.widget-footer > button:hover { background: #1e2a21; color: #edfff3; }
+
+@media (max-width: 320px) {
+  .widget-brand > span { display: none; }
+  .widget-brand strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .widget-body { padding: 8px; }
+  .widget-account { padding: 9px; }
+  .widget-metric { grid-template-columns: 48px minmax(0, 1fr) 30px; gap: 5px; }
+}

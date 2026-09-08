@@ -3,6 +3,7 @@ dist/
 dist-electron/
 release/
 src-tauri/target/
+src-tauri/WebView2/
 src-tauri/gen/schemas/
 *.log
 .env

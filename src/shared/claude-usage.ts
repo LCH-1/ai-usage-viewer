@@ -35,6 +35,7 @@ function metric(id: string, label: string, usedPercent: number | undefined, rese
     label,
     usedPercent: Math.max(0, Math.min(100, Math.round(usedPercent * 10) / 10)),
     resetText: formatResetDateTime(resetsAt),
+    resetsAt: resetsAt ?? null,
     detail: null,
   }
 }

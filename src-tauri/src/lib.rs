@@ -2,107 +2,36 @@ mod command;
 mod models;
 mod providers;
 mod store;
+mod tray_widget;
+mod usage;
 
-use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+#[cfg(not(feature = "microsoft-store"))]
+use std::time::Duration;
 
-use chrono::Utc;
-use models::{Account, AccountUsage, ProviderId, UpdateInfo};
+use models::{Account, AccountUsage, ProviderError, ProviderId, UpdateInfo};
+#[cfg(not(feature = "microsoft-store"))]
 use serde::Deserialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Runtime, State, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
+use usage::UsageState;
 
-#[derive(Default)]
-struct AuthenticationState(Mutex<HashSet<String>>);
-
-const CLAUDE_CACHE_TTL: Duration = Duration::from_secs(60);
-const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(30);
-const CLAUDE_REQUEST_GAP: Duration = Duration::from_secs(2);
-const CLAUDE_BACKOFF: Duration = Duration::from_secs(90);
+#[cfg(not(feature = "microsoft-store"))]
 const LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/LCH-1/ai-usage-viewer/releases/latest";
+#[cfg(not(feature = "microsoft-store"))]
 const LATEST_RELEASE_URL: &str = "https://github.com/LCH-1/ai-usage-viewer/releases/latest";
+#[cfg(feature = "microsoft-store")]
+const LATEST_RELEASE_URL: &str = "https://apps.microsoft.com/detail/9N38KL2P8LK7";
 
+#[cfg(not(feature = "microsoft-store"))]
 #[derive(Deserialize)]
 struct GitHubRelease {
     tag_name: String,
     html_url: String,
-}
-
-struct CachedUsage {
-    usage: AccountUsage,
-    fetched: Instant,
-}
-
-#[derive(Default)]
-struct UsageState {
-    cache: tokio::sync::Mutex<HashMap<String, CachedUsage>>,
-    blocked_until: tokio::sync::Mutex<HashMap<String, Instant>>,
-    claude_gate: tokio::sync::Mutex<()>,
-    claude_last_request: tokio::sync::Mutex<Option<Instant>>,
-}
-
-impl UsageState {
-    async fn fresh(&self, account_id: &str, ttl: Duration) -> Option<AccountUsage> {
-        let cache = self.cache.lock().await;
-        let cached = cache.get(account_id)?;
-        (cached.fetched.elapsed() < ttl).then(|| checked_now(cached.usage.clone()))
-    }
-
-    async fn stale(&self, account_id: &str, warning: &str) -> Option<AccountUsage> {
-        let cache = self.cache.lock().await;
-        cache
-            .get(account_id)
-            .map(|cached| with_warning(checked_now(cached.usage.clone()), warning))
-    }
-
-    async fn save(&self, account_id: &str, usage: &AccountUsage) {
-        self.cache.lock().await.insert(
-            account_id.into(),
-            CachedUsage {
-                usage: usage.clone(),
-                fetched: Instant::now(),
-            },
-        );
-        self.blocked_until.lock().await.remove(account_id);
-    }
-
-    async fn is_blocked(&self, account_id: &str) -> bool {
-        self.blocked_until
-            .lock()
-            .await
-            .get(account_id)
-            .is_some_and(|until| *until > Instant::now())
-    }
-
-    async fn block(&self, account_id: &str) {
-        self.blocked_until
-            .lock()
-            .await
-            .insert(account_id.into(), Instant::now() + CLAUDE_BACKOFF);
-    }
-
-    async fn clear(&self, account_id: &str) {
-        self.cache.lock().await.remove(account_id);
-        self.blocked_until.lock().await.remove(account_id);
-    }
-}
-
-fn checked_now(mut usage: AccountUsage) -> AccountUsage {
-    usage.fetched_at = Utc::now().to_rfc3339();
-    usage
-}
-
-fn with_warning(mut usage: AccountUsage, warning: &str) -> AccountUsage {
-    usage.warning = Some(match usage.warning {
-        Some(current) if !current.is_empty() => format!("{current} {warning}"),
-        _ => warning.into(),
-    });
-    usage
 }
 
 #[tauri::command]
@@ -121,43 +50,55 @@ fn rename_account(account_id: String, label: String) -> Result<Account, String> 
 }
 
 #[tauri::command]
-async fn remove_account(state: State<'_, UsageState>, account_id: String) -> Result<(), String> {
-    store::remove_account(&account_id)?;
-    state.clear(&account_id).await;
+async fn remove_account(
+    state: State<'_, Arc<UsageState>>,
+    account_id: String,
+) -> Result<(), ProviderError> {
+    state
+        .remove(&account_id, || store::remove_account(&account_id))
+        .await?;
+    providers::claude::clear_profile_cache(&account_id).await;
+    providers::cursor::clear_metadata_cache(&account_id);
     Ok(())
 }
 
 #[tauri::command]
 async fn authenticate_account<R: Runtime>(
     app: AppHandle<R>,
-    authentication: State<'_, AuthenticationState>,
-    usage: State<'_, UsageState>,
+    state: State<'_, Arc<UsageState>>,
     account_id: String,
-) -> Result<(), String> {
-    {
-        let mut active = authentication.0.lock().map_err(|error| error.to_string())?;
-        if !active.insert(account_id.clone()) {
-            return Ok(());
-        }
-    }
-    let result = async {
-        let account = store::find_account(&account_id)?;
-        match account.provider {
-            ProviderId::Claude => providers::claude::authenticate(&account_id).await,
-            ProviderId::Codex => providers::codex::authenticate(&app, &account_id).await,
-            ProviderId::Cursor => providers::cursor::authenticate(&app, &account_id).await,
-        }
-    }
-    .await;
-    if let Ok(mut active) = authentication.0.lock() {
-        active.remove(&account_id);
-    }
-    if result.is_ok() {
-        usage.clear(&account_id).await;
-    }
-    result
+) -> Result<(), ProviderError> {
+    let account = store::find_account(&account_id)
+        .map_err(|message| ProviderError::new("notFound", message))?;
+    let state = Arc::clone(state.inner());
+    state
+        .authenticate(account_id.clone(), move || async move {
+            match account.provider {
+                ProviderId::Claude => providers::claude::authenticate(&account_id).await,
+                ProviderId::Codex => providers::codex::authenticate(&app, &account_id).await,
+                ProviderId::Cursor => providers::cursor::authenticate(&app, &account_id).await,
+            }
+        })
+        .await
 }
 
+#[tauri::command]
+async fn cancel_authentication(
+    state: State<'_, Arc<UsageState>>,
+    account_id: String,
+) -> Result<(), ProviderError> {
+    state.cancel_authentication(&account_id).await
+}
+
+#[tauri::command]
+fn get_cached_usage(
+    state: State<'_, Arc<UsageState>>,
+    account_id: String,
+) -> Result<Option<AccountUsage>, ProviderError> {
+    let account = store::find_account(&account_id)
+        .map_err(|message| ProviderError::new("notFound", message))?;
+    state.cached(&account_id, account.provider)
+}
 #[tauri::command]
 fn open_provider_portal<R: Runtime>(app: AppHandle<R>, account_id: String) -> Result<(), String> {
     let account = store::find_account(&account_id)?;
@@ -166,6 +107,7 @@ fn open_provider_portal<R: Runtime>(app: AppHandle<R>, account_id: String) -> Re
         .map_err(|error| error.to_string())
 }
 
+#[cfg(not(feature = "microsoft-store"))]
 fn is_newer_version(latest: &str, current: &str) -> Result<bool, String> {
     let latest = semver::Version::parse(latest.trim_start_matches('v'))
         .map_err(|error| error.to_string())?;
@@ -174,6 +116,19 @@ fn is_newer_version(latest: &str, current: &str) -> Result<bool, String> {
     Ok(latest > current)
 }
 
+#[cfg(feature = "microsoft-store")]
+#[tauri::command]
+async fn check_for_update() -> Result<UpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+    Ok(UpdateInfo {
+        current_version: current_version.into(),
+        latest_version: current_version.into(),
+        available: false,
+        release_url: LATEST_RELEASE_URL.into(),
+    })
+}
+
+#[cfg(not(feature = "microsoft-store"))]
 #[tauri::command]
 async fn check_for_update() -> Result<UpdateInfo, String> {
     let current_version = env!("CARGO_PKG_VERSION");
@@ -210,78 +165,46 @@ fn open_latest_release<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 
 #[tauri::command]
 async fn refresh_account(
-    state: State<'_, UsageState>,
+    state: State<'_, Arc<UsageState>>,
     account_id: String,
     force: bool,
-) -> Result<AccountUsage, String> {
-    let account = store::find_account(&account_id)?;
-    let ttl = if account.provider == ProviderId::Claude {
-        CLAUDE_CACHE_TTL
-    } else {
-        DEFAULT_CACHE_TTL
-    };
-    if !force {
-        if let Some(usage) = state.fresh(&account_id, ttl).await {
-            return Ok(usage);
-        }
+) -> Result<AccountUsage, ProviderError> {
+    let account = store::find_account(&account_id)
+        .map_err(|message| ProviderError::new("notFound", message))?;
+    let state = Arc::clone(state.inner());
+    state
+        .refresh(
+            account_id.clone(),
+            account.provider,
+            force,
+            move || async move {
+                match account.provider {
+                    ProviderId::Claude => providers::claude::usage(&account_id).await,
+                    ProviderId::Codex => providers::codex::usage(&account_id).await,
+                    ProviderId::Cursor => providers::cursor::usage(&account_id).await,
+                }
+            },
+        )
+        .await
+}
+fn reveal_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    let _ = tray_widget::hide(app);
+    if let Some(window) = app.get_webview_window("main") {
+        window.show()?;
+        window.unminimize()?;
+        window.set_focus()?;
     }
-
-    if account.provider == ProviderId::Claude {
-        let _gate = state.claude_gate.lock().await;
-        if !force {
-            if let Some(usage) = state.fresh(&account_id, ttl).await {
-                return Ok(usage);
-            }
-        }
-        if state.is_blocked(&account_id).await {
-            return state
-                .stale(&account_id, "Claude 요청 제한으로 최근 사용량을 표시합니다. 잠시 후 자동으로 다시 확인합니다.")
-                .await
-                .ok_or_else(|| "Claude 요청이 잠시 제한되었습니다. 잠시 후 다시 확인해 주세요.".into());
-        }
-
-        let wait = {
-            let last_request = state.claude_last_request.lock().await;
-            last_request.and_then(|last| CLAUDE_REQUEST_GAP.checked_sub(last.elapsed()))
-        };
-        if let Some(wait) = wait {
-            tokio::time::sleep(wait).await;
-        }
-        *state.claude_last_request.lock().await = Some(Instant::now());
-
-        return match providers::claude::usage(&account_id).await {
-            Ok(usage) => {
-                state.save(&account_id, &usage).await;
-                Ok(usage)
-            }
-            Err(error) if error.contains("429") || error.contains("Too Many Requests") => {
-                state.block(&account_id).await;
-                state
-                    .stale(&account_id, "Claude 요청 제한으로 최근 사용량을 표시합니다. 잠시 후 자동으로 다시 확인합니다.")
-                    .await
-                    .ok_or_else(|| "Claude 요청이 잠시 제한되었습니다. 잠시 후 다시 확인해 주세요.".into())
-            }
-            Err(error) => Err(error),
-        };
-    }
-
-    let result = match account.provider {
-        ProviderId::Claude => unreachable!(),
-        ProviderId::Codex => providers::codex::usage(&account_id).await,
-        ProviderId::Cursor => providers::cursor::usage(&account_id).await,
-    };
-    if let Ok(usage) = &result {
-        state.save(&account_id, usage).await;
-    }
-    result
+    Ok(())
 }
 
-fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+#[tauri::command]
+fn show_main_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    reveal_main_window(&app).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn hide_widget<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    tray_widget::hide(&app).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -292,35 +215,63 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            show_main_window(app)
+            let _ = reveal_main_window(app);
         }))
         .plugin(tauri_plugin_opener::init())
-        .manage(AuthenticationState::default())
-        .manage(UsageState::default())
+        .manage(Arc::new(UsageState::default()))
+        .manage(tray_widget::WidgetState::default())
         .setup(move |app| {
+            if let Err(error) = tray_widget::create(app.handle()) {
+                eprintln!("트레이 위젯을 준비하지 못했습니다: {error}");
+            }
             let show = MenuItem::with_id(app, "show", "Usage Viewer 열기", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
             let mut tray = TrayIconBuilder::with_id("main-tray")
                 .tooltip("Usage Viewer")
                 .menu(&menu)
+                .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
-                    "show" => show_main_window(app),
+                    "show" => {
+                        let _ = reveal_main_window(app);
+                    }
                     "quit" => {
                         tray_state.store(true, Ordering::SeqCst);
                         app.exit(0);
                     }
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
+                .on_tray_icon_event(|tray, event| match event {
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Down,
+                        ..
+                    } => tray_widget::press(tray.app_handle()),
+                    TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
+                        rect,
+                        position,
                         ..
-                    } = event
-                    {
-                        show_main_window(tray.app_handle());
+                    } => {
+                        if tray.app_handle().get_webview_window("widget").is_some() {
+                            if let Err(error) =
+                                tray_widget::toggle(tray.app_handle(), rect, position)
+                            {
+                                eprintln!("트레이 위젯을 표시하지 못했습니다: {error}");
+                                let _ = reveal_main_window(tray.app_handle());
+                            }
+                        } else {
+                            let _ = reveal_main_window(tray.app_handle());
+                        }
                     }
+                    TrayIconEvent::Click {
+                        button: MouseButton::Right,
+                        ..
+                    } => {
+                        let _ = tray_widget::hide(tray.app_handle());
+                    }
+                    _ => {}
                 });
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
@@ -329,6 +280,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(move |window, event| {
+            tray_widget::on_window_event(window, event);
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if !close_state.load(Ordering::SeqCst) {
                     api.prevent_close();
@@ -342,10 +294,14 @@ pub fn run() {
             rename_account,
             remove_account,
             authenticate_account,
+            cancel_authentication,
+            get_cached_usage,
             open_provider_portal,
             check_for_update,
             open_latest_release,
             refresh_account,
+            show_main_window,
+            hide_widget,
         ])
         .run(tauri::generate_context!())
         .expect("Usage Viewer 실행 중 오류가 발생했습니다.");
@@ -353,20 +309,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    #[cfg(not(feature = "microsoft-store"))]
+    use super::is_newer_version;
 
-    fn sample_usage() -> AccountUsage {
-        AccountUsage {
-            account_id: "claude-one".into(),
-            email: Some("one@example.com".into()),
-            plan: Some("MAX".into()),
-            metrics: Vec::new(),
-            fetched_at: "2026-01-01T00:00:00Z".into(),
-            source_url: "https://example.com".into(),
-            warning: None,
-        }
-    }
-
+    #[cfg(not(feature = "microsoft-store"))]
     #[test]
     fn compares_release_versions() {
         assert!(is_newer_version("v0.1.7", "0.1.6").unwrap());
@@ -374,33 +320,16 @@ mod tests {
         assert!(!is_newer_version("v0.1.5", "0.1.6").unwrap());
     }
 
+    #[cfg(feature = "microsoft-store")]
     #[tokio::test]
-    async fn cached_usage_updates_the_check_time() {
-        let state = UsageState::default();
-        let usage = sample_usage();
-        state.save("claude-one", &usage).await;
-
-        let cached = state
-            .fresh("claude-one", Duration::from_secs(60))
-            .await
-            .unwrap();
-
-        assert_eq!(cached.email, usage.email);
-        assert_ne!(cached.fetched_at, usage.fetched_at);
-    }
-
-    #[tokio::test]
-    async fn blocked_account_can_return_stale_usage() {
-        let state = UsageState::default();
-        state.save("claude-one", &sample_usage()).await;
-        state.block("claude-one").await;
-
-        let cached = state
-            .stale("claude-one", "잠시 후 다시 확인합니다.")
-            .await
-            .unwrap();
-
-        assert_eq!(cached.warning.as_deref(), Some("잠시 후 다시 확인합니다."));
-        assert!(state.is_blocked("claude-one").await);
+    async fn keeps_updates_in_microsoft_store() {
+        let update = super::check_for_update().await.unwrap();
+        assert!(!update.available);
+        assert_eq!(update.current_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(update.latest_version, update.current_version);
+        assert_eq!(
+            update.release_url,
+            "https://apps.microsoft.com/detail/9N38KL2P8LK7"
+        );
     }
 }

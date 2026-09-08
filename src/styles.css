@@ -18,22 +18,25 @@
 }
 *::-webkit-scrollbar-thumb:hover { background: #4a554f; }
 
+html, body, #root { height: 100%; }
+
 body {
   margin: 0;
   min-width: 360px;
-  min-height: 100vh;
+  overflow: hidden;
   background:
     radial-gradient(circle at 12% -10%, rgba(74, 222, 128, 0.08), transparent 28rem),
     #070809;
 }
 
-.app-frame { min-height: 100vh; border: 1px solid #252a27; background: #070809; }
+.app-frame { display: flex; height: 100%; flex-direction: column; overflow: hidden; border: 1px solid #252a27; background: #070809; }
+.app-scroll { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; }
 .window-titlebar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 50;
   display: flex;
   height: 38px;
+  flex: 0 0 38px;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid #202421;
@@ -43,6 +46,7 @@ body {
 }
 .window-title { display: flex; height: 100%; align-items: center; gap: 8px; padding-left: 11px; font-size: 11px; font-weight: 650; }
 .window-title img { width: 17px; height: 17px; border-radius: 5px; }
+.app-version { color: #68716b; font-size: 10px; font-weight: 500; }
 .window-controls { display: flex; height: 100%; align-items: stretch; }
 .window-controls button { display: grid; width: 44px; height: 100%; place-items: center; background: transparent; color: #8d9690; }
 .window-controls button:hover { background: #262b28; color: #f1f4f2; }
@@ -54,7 +58,7 @@ button { color: inherit; }
 
 .app-shell {
   width: min(100%, 920px);
-  min-height: calc(100vh - 40px);
+  min-height: 100%;
   margin: 0 auto;
   padding: 20px 26px 18px;
 }
@@ -190,7 +194,8 @@ button:disabled { cursor: default; opacity: .45; }
 }
 .notice.error { border-color: #4a292e; background: #201315; color: #ff9aa7; }
 .login-callout:hover { background: #212117; }
-.updated { color: #525a55; font-size: 8px; white-space: nowrap; }
+.account-login-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.portal-help { line-height: 1.6; overflow-wrap: anywhere; }
 .banner { display: flex; justify-content: space-between; margin: -12px 0 18px; }
 .update-banner {
   display: flex;
@@ -291,12 +296,14 @@ input {
 input:focus { border-color: #617269; }
 .field-help { margin: 7px 0 20px; color: #616963; font-size: 9px; }
 .dialog-actions { justify-content: flex-end; gap: 8px; }
-.edit-account-provider { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid #292d2a; border-radius: 10px; background: #151715; }
+.edit-account-provider { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid #292d2a; border-radius: 10px; background: #151715; }
 .edit-account-provider .provider-icon { width: 22px; height: 22px; }
-.edit-account-provider div { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.edit-account-identity { display: flex; min-width: 0; flex: 1; align-items: center; gap: 7px; }
+.edit-account-details { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .edit-account-provider strong { font-size: 11px; }
 .edit-account-provider span { overflow: hidden; color: #747d77; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.provider-link-button { display: flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid #303531; border-radius: 8px; background: #1b1e1c; color: #aeb6b1; font-size: 10px; font-weight: 700; }
+.provider-link-button { display: flex; flex: 0 0 auto; min-height: 28px; align-items: center; justify-content: center; gap: 4px; padding: 0 7px; border: 1px solid #303531; border-radius: 8px; background: #1b1e1c; color: #aeb6b1; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.provider-link-button .action-icon { width: 12px; height: 12px; flex: 0 0 auto; }
 .provider-link-button:hover { background: #242825; color: #f1f4f2; }
 .split-actions { justify-content: space-between; margin-top: 22px; }
 .split-actions > div { display: flex; gap: 8px; }
