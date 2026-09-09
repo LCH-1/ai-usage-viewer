@@ -253,7 +253,7 @@ export function App() {
 
   const refreshAccount = useCallback((accountId: string, force = false) => {
     const account = accountsRef.current.find((item) => item.id === accountId)
-    if (!account || !canRefreshAccount(account, Date.now())) return Promise.resolve()
+    if (!account || !canRefreshAccount(account, Date.now(), true)) return Promise.resolve()
     return requests.refresh(accountId, async (isCurrent) => {
       updateAccounts((current) => current.map((item) => item.id === accountId ? { ...item, refreshing: true } : item))
       try {
@@ -351,7 +351,7 @@ export function App() {
         checkingVisibility = false
       }
     }
-    const timer = window.setInterval(() => void poll(), 10 * 1000)
+    const timer = window.setInterval(() => void poll(), 5 * 1000)
     const onVisible = () => { void poll() }
     window.addEventListener("focus", onVisible)
     document.addEventListener("visibilitychange", onVisible)

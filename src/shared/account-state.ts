@@ -28,10 +28,10 @@ export function nextRetryAt(account: AccountView): string | null {
   return account.error?.retryAt ?? account.usage?.nextRetryAt ?? null
 }
 
-export function canRefreshAccount(account: AccountView, now: number): boolean {
+export function canRefreshAccount(account: AccountView, now: number, includeLocal = false): boolean {
   if (account.authenticating || account.cancelling || account.removing || account.error?.code === "authRequired") return false
   const retry = parseTimestamp(nextRetryAt(account))
-  return retry === null || retry.getTime() <= now
+  return includeLocal || retry === null || retry.getTime() <= now
 }
 
 export function resetNeedsVerification(metric: UsageMetric, now: number): boolean {

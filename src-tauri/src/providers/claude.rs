@@ -254,7 +254,7 @@ fn model_metric_id(display_name: &str) -> String {
     format!("model-{}", slug.trim_matches('-'))
 }
 
-fn parse_metrics(payload: &Value) -> Vec<UsageMetric> {
+pub(crate) fn parse_metrics(payload: &Value) -> Vec<UsageMetric> {
     let mut metrics = [
         metric("five-hour", "5시간", payload.get("five_hour")),
         metric("weekly", "주간", payload.get("seven_day")),

@@ -28,6 +28,8 @@ struct Control {
     refresh: Option<Job<AccountUsage>>,
     authentication: Option<Job<()>>,
     snapshot: UsageSnapshot,
+    local_usage: Option<AccountUsage>,
+    local_checked: Option<std::time::Instant>,
 }
 
 #[derive(Default)]
@@ -42,15 +44,13 @@ pub struct UsageState {
     directory: Option<PathBuf>,
 }
 
-const CLAUDE_POLL_SECONDS: u64 = 300;
-const CLAUDE_MAX_POLL_SECONDS: u64 = 1800;
+const CLAUDE_POLL_SECONDS: u64 = 60;
+const CLAUDE_BACKOFF_SECONDS: [u64; 6] = [60, 120, 300, 600, 900, 1800];
 const CLAUDE_MANUAL_SECONDS: i64 = 60;
 
-fn ttl(snapshot: &UsageSnapshot, provider: ProviderId) -> i64 {
+fn ttl(_snapshot: &UsageSnapshot, provider: ProviderId) -> i64 {
     if provider == ProviderId::Claude {
-        snapshot
-            .poll_interval_seconds
-            .clamp(CLAUDE_POLL_SECONDS, CLAUDE_MAX_POLL_SECONDS) as i64
+        CLAUDE_POLL_SECONDS as i64
     } else {
         30
     }
@@ -60,6 +60,56 @@ fn timestamp(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .ok()
         .map(|date| date.with_timezone(&Utc))
+}
+
+fn local_view(control: &Control) -> Option<AccountUsage> {
+    let usage = control.local_usage.as_ref()?;
+    if !crate::local_usage::fresh(usage, Utc::now()) {
+        return None;
+    }
+    if control
+        .snapshot
+        .usage
+        .as_ref()
+        .is_some_and(|remote| timestamp(&remote.fetched_at) >= timestamp(&usage.fetched_at))
+    {
+        return None;
+    }
+    Some(usage.clone())
+}
+
+fn prefer_local(
+    control: &Control,
+    provider: ProviderId,
+    result: OperationResult<AccountUsage>,
+) -> OperationResult<AccountUsage> {
+    if result.as_ref().is_err_and(|error| {
+        error.code == "cancelled" || error.code == "authenticating" || error.code == "notFound"
+    }) {
+        return result;
+    }
+    let Some(mut local) = control.local_usage.clone() else {
+        return result;
+    };
+    if result
+        .as_ref()
+        .is_ok_and(|remote| timestamp(&remote.fetched_at) >= timestamp(&local.fetched_at))
+    {
+        return result;
+    }
+    local.stale = !crate::local_usage::fresh(&local, Utc::now())
+        || control
+            .snapshot
+            .last_error
+            .as_ref()
+            .is_some_and(|error| error.code == "authRequired");
+    if local.stale {
+        let remote = snapshot_view(&control.snapshot, provider);
+        local.error = control.snapshot.last_error.clone();
+        local.next_retry_at = control.snapshot.retry_at.clone();
+        local.checked_at = remote.and_then(|usage| usage.checked_at);
+    }
+    Ok(local)
 }
 
 fn snapshot_view(snapshot: &UsageSnapshot, provider: ProviderId) -> Option<AccountUsage> {
@@ -120,12 +170,17 @@ fn retry_deadline(
     } else {
         300
     };
-    let backoff = if error.code == "rateLimited" && claude_interval.is_some() {
-        claude_interval.unwrap_or(base)
+    let backoff = if claude_interval.is_some() {
+        CLAUDE_BACKOFF_SECONDS[failures.saturating_sub(1).min(5) as usize]
     } else {
         (base * (1_u64 << failures.saturating_sub(1).min(8))).min(cap)
     };
-    let seconds = backoff.max(claude_interval.unwrap_or(0)) + rand::rng().random_range(0..=10);
+    let seconds = backoff
+        + if claude_interval.is_some() {
+            0
+        } else {
+            rand::rng().random_range(0..=10)
+        };
     let local_deadline = now + chrono::Duration::seconds(seconds as i64);
     error
         .retry_at
@@ -221,7 +276,80 @@ impl UsageState {
         if control.deleted {
             return Err(ProviderError::new("notFound", "계정을 찾을 수 없습니다."));
         }
-        Ok(snapshot_view(&control.snapshot, provider))
+        let remote = snapshot_view(&control.snapshot, provider);
+        Ok(prefer_local(
+            &control,
+            provider,
+            remote.ok_or_else(|| ProviderError::temporary("사용량을 아직 수집하지 않았습니다.")),
+        )
+        .ok())
+    }
+
+    pub async fn refresh_local(
+        &self,
+        account_id: &str,
+        provider: ProviderId,
+    ) -> OperationResult<Option<AccountUsage>> {
+        if provider == ProviderId::Cursor {
+            return Ok(None);
+        }
+        let account = self.account(account_id)?;
+        let Ok(_gate) = account.gate.try_lock() else {
+            return Ok(None);
+        };
+        let (generation, previous) = {
+            let mut control = account
+                .control
+                .lock()
+                .map_err(|error| ProviderError::from(error.to_string()))?;
+            if control.deleted {
+                return Err(ProviderError::new("notFound", "계정을 찾을 수 없습니다."));
+            }
+            if control.authentication.is_some()
+                || control
+                    .snapshot
+                    .last_error
+                    .as_ref()
+                    .is_some_and(|error| error.code == "authRequired")
+            {
+                return Ok(None);
+            }
+            if control
+                .local_checked
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(5))
+            {
+                return Ok(local_view(&control));
+            }
+            control.local_checked = Some(std::time::Instant::now());
+            (control.generation, control.snapshot.usage.clone())
+        };
+        let id = account_id.to_owned();
+        let usage = tokio::task::spawn_blocking(move || {
+            crate::local_usage::read(&id, provider, previous.as_ref())
+        })
+        .await
+        .ok()
+        .flatten();
+        let mut control = account
+            .control
+            .lock()
+            .map_err(|error| ProviderError::from(error.to_string()))?;
+        if control.deleted || control.generation != generation {
+            return Err(ProviderError::cancelled());
+        }
+        let available = usage.is_some();
+        if let Some(mut usage) = usage {
+            if let Some(previous) = &control.snapshot.usage {
+                usage.email = usage.email.or_else(|| previous.email.clone());
+                usage.plan = usage.plan.or_else(|| previous.plan.clone());
+            }
+            if control.local_usage.as_ref().is_none_or(|previous| {
+                timestamp(&previous.fetched_at) <= timestamp(&usage.fetched_at)
+            }) {
+                control.local_usage = Some(usage);
+            }
+        }
+        Ok(available.then(|| local_view(&control)).flatten())
     }
 
     pub async fn refresh<F, Fut>(
@@ -254,7 +382,7 @@ impl UsageState {
             if let Some(job) = &control.refresh {
                 job.completion.clone()
             } else if let Some(result) = cached_result(&control.snapshot, provider, force) {
-                return result;
+                return prefer_local(&control, provider, result);
             } else {
                 let (finished, completion) = watch::channel(None);
                 let (cancel, mut cancelled) = watch::channel(false);
@@ -277,13 +405,14 @@ impl UsageState {
                         Ok(mut control) => {
                             let current = control.generation == generation && !control.deleted;
                             let result = if current {
-                                finish_refresh(
+                                let result = finish_refresh(
                                     &mut control.snapshot,
                                     result,
                                     provider,
                                     &directory,
                                     &account_id,
-                                )
+                                );
+                                prefer_local(&control, provider, result)
                             } else {
                                 Err(ProviderError::cancelled())
                             };
@@ -327,6 +456,8 @@ impl UsageState {
                     job.cancel.send_replace(true);
                 }
                 control.generation += 1;
+                control.local_usage = None;
+                control.local_checked = None;
                 control.next_job += 1;
                 let generation = control.generation;
                 let job_id = control.next_job;
@@ -451,21 +582,9 @@ fn finish_refresh(
     snapshot.checked_at = Some(now.to_rfc3339());
     match result {
         Ok(mut usage) => {
-            let recovery_sample = snapshot.usage.as_ref().is_some_and(|previous| {
-                timestamp(&previous.fetched_at)
-                    .zip(timestamp(&usage.fetched_at))
-                    .is_some_and(|(previous, current)| {
-                        current.signed_duration_since(previous).num_seconds()
-                            >= ttl(snapshot, provider)
-                    })
-            });
-            if provider == ProviderId::Claude && recovery_sample {
-                snapshot.successful_refreshes = snapshot.successful_refreshes.saturating_add(1);
-                if snapshot.successful_refreshes >= 3 {
-                    snapshot.poll_interval_seconds =
-                        (ttl(snapshot, provider) as u64 / 2).max(CLAUDE_POLL_SECONDS);
-                    snapshot.successful_refreshes = 0;
-                }
+            if provider == ProviderId::Claude {
+                snapshot.poll_interval_seconds = CLAUDE_POLL_SECONDS;
+                snapshot.successful_refreshes = 0;
             }
             if let Some(previous) = &snapshot.usage {
                 if usage.email.is_none() {
@@ -488,11 +607,8 @@ fn finish_refresh(
             snapshot.failure_count = snapshot.failure_count.saturating_add(1);
             snapshot.successful_refreshes = 0;
             let claude_interval = if provider == ProviderId::Claude {
-                let interval = ttl(snapshot, provider) as u64;
-                if error.code == "rateLimited" {
-                    snapshot.poll_interval_seconds = (interval * 2).min(CLAUDE_MAX_POLL_SECONDS);
-                }
-                Some(interval)
+                snapshot.poll_interval_seconds = CLAUDE_POLL_SECONDS;
+                Some(CLAUDE_POLL_SECONDS)
             } else {
                 None
             };
@@ -560,6 +676,52 @@ mod tests {
             stale: false,
             error: None,
         }
+    }
+
+    #[tokio::test]
+    async fn local_updates_do_not_reset_server_backoff_or_revert_to_older_remote_values() {
+        let (_directory, state) = fixture();
+        let account = state.account("one").unwrap();
+        let mut local = sample("one");
+        local.plan = Some("local".into());
+        let retry = (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339();
+        {
+            let mut control = account.control.lock().unwrap();
+            let mut remote = sample("one");
+            remote.fetched_at = (Utc::now() - chrono::Duration::minutes(10)).to_rfc3339();
+            control.snapshot = UsageSnapshot {
+                usage: Some(remote),
+                failure_count: 3,
+                retry_at: Some(retry.clone()),
+                last_error: Some(ProviderError::new("rateLimited", "limited")),
+                ..UsageSnapshot::default()
+            };
+            control.local_usage = Some(local);
+        }
+        let usage = state
+            .refresh("one".into(), ProviderId::Claude, true, || async {
+                panic!("local data cannot bypass network backoff")
+            })
+            .await
+            .unwrap();
+        assert_eq!(usage.plan.as_deref(), Some("local"));
+        assert!(!usage.stale);
+        {
+            let mut control = account.control.lock().unwrap();
+            assert_eq!(control.snapshot.failure_count, 3);
+            assert_eq!(control.snapshot.retry_at.as_deref(), Some(retry.as_str()));
+            control.local_usage.as_mut().unwrap().fetched_at =
+                (Utc::now() - chrono::Duration::minutes(2)).to_rfc3339();
+        }
+        let stale = state.cached("one", ProviderId::Claude).unwrap().unwrap();
+        assert_eq!(stale.plan.as_deref(), Some("local"));
+        assert!(stale.stale);
+        assert_eq!(stale.next_retry_at.as_deref(), Some(retry.as_str()));
+        state
+            .authenticate("one".into(), || async { Ok(()) })
+            .await
+            .unwrap();
+        assert!(state.cached("one", ProviderId::Claude).unwrap().is_none());
     }
 
     #[tokio::test]
@@ -704,7 +866,7 @@ mod tests {
         let now = Utc::now();
         let mut error = ProviderError::new("rateLimited", "limited");
         error.retry_at = Some((now + chrono::Duration::seconds(1)).to_rfc3339());
-        for (failures, interval, minimum) in [(2, None, 180), (1, Some(300), 300)] {
+        for (failures, interval, minimum) in [(2, None, 180), (1, Some(60), 60)] {
             let until = timestamp(&retry_deadline(&error, failures, now, interval)).unwrap();
             assert!(until >= now + chrono::Duration::seconds(minimum));
             assert!(until <= now + chrono::Duration::seconds(minimum + 10));
@@ -712,7 +874,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn claude_manual_refresh_has_a_floor_and_automatic_refresh_waits_longer() {
+    async fn claude_manual_and_automatic_refresh_share_one_minute_floor() {
         let (_directory, state) = fixture();
         state
             .refresh("one".into(), ProviderId::Claude, true, || async {
@@ -732,14 +894,8 @@ mod tests {
             control.snapshot.usage.as_mut().unwrap().fetched_at =
                 (Utc::now() - chrono::Duration::seconds(70)).to_rfc3339();
         }
-        state
-            .refresh("one".into(), ProviderId::Claude, false, || async {
-                panic!("automatic refresh must not return to the former one-minute cadence")
-            })
-            .await
-            .unwrap();
         let refreshed = state
-            .refresh("one".into(), ProviderId::Claude, true, || async {
+            .refresh("one".into(), ProviderId::Claude, false, || async {
                 let mut usage = sample("one");
                 usage.plan = Some("manually refreshed".into());
                 Ok(usage)
@@ -750,22 +906,16 @@ mod tests {
     }
 
     #[test]
-    fn alternating_limits_and_successes_preserve_adaptive_cadence_across_restart() {
+    fn claude_backoff_steps_survive_restart_and_success_resets_to_one_minute() {
         let (directory, _state) = fixture();
-        let mut snapshot = UsageSnapshot::default();
-        let mut usage = sample("one");
-        usage.fetched_at = (Utc::now() - chrono::Duration::minutes(2)).to_rfc3339();
-        finish_refresh(
-            &mut snapshot,
-            Ok(usage.clone()),
-            ProviderId::Claude,
-            directory.path(),
-            "one",
-        )
-        .unwrap();
-        for (minimum, next_interval) in [(300, 600), (600, 1200), (1200, 1800), (1800, 1800)] {
+        let mut snapshot = UsageSnapshot {
+            usage: Some(sample("one")),
+            poll_interval_seconds: 1800,
+            ..UsageSnapshot::default()
+        };
+        for minimum in [60, 120, 300, 600, 900, 1800, 1800] {
             let now = Utc::now();
-            let limited = finish_refresh(
+            finish_refresh(
                 &mut snapshot,
                 Err(ProviderError::new("rateLimited", "limited")),
                 ProviderId::Claude,
@@ -773,49 +923,35 @@ mod tests {
                 "one",
             )
             .unwrap();
-            assert_eq!(limited.fetched_at, usage.fetched_at);
-            assert!(
-                timestamp(limited.next_retry_at.as_deref().unwrap()).unwrap()
-                    >= now + chrono::Duration::seconds(minimum)
-            );
+            let until = timestamp(snapshot.retry_at.as_deref().unwrap()).unwrap();
+            assert!(until >= now + chrono::Duration::seconds(minimum));
+            assert!(until < now + chrono::Duration::seconds(minimum + 1));
             snapshot = store::load_snapshot(directory.path(), "one").unwrap();
-            assert_eq!(snapshot.poll_interval_seconds, next_interval);
             assert!(cached_result(&snapshot, ProviderId::Claude, true).is_some());
-            snapshot.usage.as_mut().unwrap().fetched_at =
-                (Utc::now() - chrono::Duration::seconds(next_interval as i64 + 1)).to_rfc3339();
-            usage.fetched_at = Utc::now().to_rfc3339();
-            finish_refresh(
-                &mut snapshot,
-                Ok(usage.clone()),
-                ProviderId::Claude,
-                directory.path(),
-                "one",
-            )
-            .unwrap();
-            assert_eq!(snapshot.poll_interval_seconds, next_interval);
-            assert_eq!(snapshot.successful_refreshes, 1);
-            assert!(snapshot.retry_at.is_none());
         }
-        for _ in 0..2 {
-            snapshot.usage.as_mut().unwrap().fetched_at =
-                (Utc::now() - chrono::Duration::seconds(1801)).to_rfc3339();
-            usage.fetched_at = Utc::now().to_rfc3339();
-            finish_refresh(
-                &mut snapshot,
-                Ok(usage.clone()),
-                ProviderId::Claude,
-                directory.path(),
-                "one",
-            )
-            .unwrap();
-        }
-        assert_eq!(snapshot.poll_interval_seconds, 900);
-        assert_eq!(snapshot.successful_refreshes, 0);
-        assert_eq!(
-            store::load_snapshot(directory.path(), "one")
-                .unwrap()
-                .poll_interval_seconds,
-            900
+        finish_refresh(
+            &mut snapshot,
+            Ok(sample("one")),
+            ProviderId::Claude,
+            directory.path(),
+            "one",
+        )
+        .unwrap();
+        assert_eq!(snapshot.failure_count, 0);
+        assert_eq!(ttl(&snapshot, ProviderId::Claude), 60);
+        assert!(snapshot.retry_at.is_none());
+        let now = Utc::now();
+        finish_refresh(
+            &mut snapshot,
+            Err(ProviderError::temporary("offline")),
+            ProviderId::Claude,
+            directory.path(),
+            "one",
+        )
+        .unwrap();
+        assert!(
+            timestamp(snapshot.retry_at.as_deref().unwrap()).unwrap()
+                < now + chrono::Duration::seconds(61)
         );
     }
 
@@ -840,7 +976,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn temporary_failure_after_a_limit_keeps_the_adaptive_wait() {
+    async fn temporary_failure_after_a_limit_advances_the_same_backoff() {
         let (_directory, state) = fixture();
         state
             .refresh("one".into(), ProviderId::Claude, true, || async {
@@ -860,7 +996,7 @@ mod tests {
             .unwrap_err();
         assert!(
             timestamp(temporary.retry_at.as_deref().unwrap()).unwrap()
-                >= now + chrono::Duration::seconds(600)
+                >= now + chrono::Duration::seconds(120)
         );
         state
             .refresh("one".into(), ProviderId::Claude, false, || async {
@@ -871,7 +1007,7 @@ mod tests {
     }
 
     #[test]
-    fn rapid_manual_successes_do_not_shorten_the_adaptive_interval() {
+    fn successful_refresh_removes_legacy_adaptive_interval() {
         let (directory, _state) = fixture();
         let mut snapshot = UsageSnapshot {
             usage: Some(sample("one")),
@@ -890,7 +1026,7 @@ mod tests {
             )
             .unwrap();
         }
-        assert_eq!(snapshot.poll_interval_seconds, 1800);
+        assert_eq!(snapshot.poll_interval_seconds, 60);
         assert_eq!(snapshot.successful_refreshes, 0);
     }
 
@@ -898,7 +1034,7 @@ mod tests {
     fn old_snapshot_uses_default_cadence_and_storage_errors_remain_actionable() {
         let (directory, _state) = fixture();
         let mut snapshot: UsageSnapshot = serde_json::from_str(r#"{"failureCount":0}"#).unwrap();
-        assert_eq!(ttl(&snapshot, ProviderId::Claude), 300);
+        assert_eq!(ttl(&snapshot, ProviderId::Claude), 60);
         assert_eq!(ttl(&snapshot, ProviderId::Codex), 30);
         std::fs::write(directory.path().join("usage"), b"blocks snapshot directory").unwrap();
         let usage = finish_refresh(

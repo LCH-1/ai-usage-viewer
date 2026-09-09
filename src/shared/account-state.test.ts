@@ -21,6 +21,8 @@ describe("account recovery state", () => {
     const now = Date.parse("2026-09-07T00:00:00Z")
     const error = providerError({ code: "rateLimited", message: "Wait", retryAt: "2026-09-07T00:01:00Z" })
     expect(canRefreshAccount({ ...account, error }, now)).toBe(false)
+    expect(canRefreshAccount({ ...account, error }, now, true)).toBe(true)
+    expect(canRefreshAccount({ ...account, authenticating: true }, now, true)).toBe(false)
     expect(canRefreshAccount({ ...account, error }, now + 60_000)).toBe(true)
     expect(canRefreshAccount({ ...account, error: { ...error, code: "authRequired", retryAt: null } }, now)).toBe(false)
     expect(canRefreshAccount({ ...account, authenticating: true }, now)).toBe(false)

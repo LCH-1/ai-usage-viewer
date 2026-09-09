@@ -1,6 +1,6 @@
 [package]
 name = "ai-usage-viewer"
-version = "0.1.10"
+version = "0.1.12"
 description = "Multi-account usage dashboard for Claude, Codex, and Cursor"
 authors = ["LCH-1"]
 edition = "2021"

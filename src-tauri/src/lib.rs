@@ -1,4 +1,5 @@
 mod command;
+mod local_usage;
 mod models;
 mod providers;
 mod store;
@@ -172,6 +173,9 @@ async fn refresh_account(
     let account = store::find_account(&account_id)
         .map_err(|message| ProviderError::new("notFound", message))?;
     let state = Arc::clone(state.inner());
+    if let Some(usage) = state.refresh_local(&account_id, account.provider).await? {
+        return Ok(usage);
+    }
     state
         .refresh(
             account_id.clone(),
@@ -221,6 +225,21 @@ pub fn run() {
         .manage(Arc::new(UsageState::default()))
         .manage(tray_widget::WidgetState::default())
         .setup(move |app| {
+            let local_state = Arc::clone(app.state::<Arc<UsageState>>().inner());
+            tauri::async_runtime::spawn(async move {
+                let mut timer = tokio::time::interval(std::time::Duration::from_secs(5));
+                timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    timer.tick().await;
+                    if let Ok(accounts) = store::list_accounts() {
+                        for account in accounts {
+                            let _ = local_state
+                                .refresh_local(&account.id, account.provider)
+                                .await;
+                        }
+                    }
+                }
+            });
             if let Err(error) = tray_widget::create(app.handle()) {
                 eprintln!("트레이 위젯을 준비하지 못했습니다: {error}");
             }

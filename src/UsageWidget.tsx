@@ -118,7 +118,7 @@ export function UsageWidget() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") hide()
     }
-    const timer = window.setInterval(() => void refresh(), 10_000)
+    const timer = window.setInterval(() => void refresh(), 5_000)
     window.addEventListener("focus", onFocus)
     window.addEventListener("blur", onBlur)
     window.addEventListener("keydown", onKeyDown)

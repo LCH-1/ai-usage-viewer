@@ -552,7 +552,7 @@ pub async fn usage(account_id: &str) -> Result<AccountUsage, ProviderError> {
     result
 }
 
-fn parse_usage(
+pub(crate) fn parse_usage(
     account_id: &str,
     details: &Value,
     response: &Value,
