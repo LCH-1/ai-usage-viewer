@@ -29,7 +29,9 @@ export function nextRetryAt(account: AccountView): string | null {
 }
 
 export function canRefreshAccount(account: AccountView, now: number, includeLocal = false): boolean {
-  if (account.authenticating || account.cancelling || account.removing || account.error?.code === "authRequired") return false
+  const error = account.error ?? account.usage?.error
+  const legacyForbidden = error?.status === 403 && error.endpoint === "claude.usage"
+  if (account.authenticating || account.cancelling || account.removing || (error?.code === "authRequired" && !legacyForbidden)) return false
   const retry = parseTimestamp(nextRetryAt(account))
   return includeLocal || retry === null || retry.getTime() <= now
 }

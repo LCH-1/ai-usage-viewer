@@ -21,15 +21,15 @@ interface ClaudeScopedLimit {
 }
 
 export interface ClaudeUsagePayload {
-  five_hour?: ClaudeWindow
-  seven_day?: ClaudeWindow
-  seven_day_sonnet?: ClaudeWindow
-  seven_day_opus?: ClaudeWindow
+  five_hour?: ClaudeWindow | null
+  seven_day?: ClaudeWindow | null
+  seven_day_sonnet?: ClaudeWindow | null
+  seven_day_opus?: ClaudeWindow | null
   limits?: ClaudeScopedLimit[]
 }
 
 function metric(id: string, label: string, usedPercent: number | undefined, resetsAt: string | undefined): UsageMetric | null {
-  if (typeof usedPercent !== "number") return null
+  if (typeof usedPercent !== "number" || !Number.isFinite(usedPercent)) return null
   return {
     id,
     label,
@@ -61,8 +61,8 @@ export function parseClaudeUsageMetrics(payload: ClaudeUsagePayload): UsageMetri
   for (const limit of payload.limits ?? []) {
     if (limit.kind !== "weekly_scoped" && limit.group !== "weekly") continue
     const displayName = limit.scope?.model?.display_name?.trim()
-    if (!displayName) continue
-    const item = metric(modelMetricId(displayName), `${displayName} 주간`, limit.percent ?? limit.utilization, limit.resets_at)
+    if (!displayName && limit.kind === "weekly_scoped") continue
+    const item = metric(displayName ? modelMetricId(displayName) : "weekly", displayName ? `${displayName} 주간` : "주간", limit.percent ?? limit.utilization, limit.resets_at)
     if (item) metrics.set(item.id, item)
   }
 

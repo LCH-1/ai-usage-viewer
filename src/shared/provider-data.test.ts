@@ -4,6 +4,15 @@ import { parseClaudeUsageMetrics } from "./claude-usage"
 import { formatDateTime, formatResetDate, parseTimestamp } from "./date"
 
 describe("parseClaudeUsageMetrics", () => {
+  it("accepts weekly-only and unscoped weekly limits without reviving a session quota", () => {
+    expect(parseClaudeUsageMetrics({ five_hour: null, seven_day: { utilization: 0 } })).toEqual([
+      expect.objectContaining({ id: "weekly", usedPercent: 0 }),
+    ])
+    expect(parseClaudeUsageMetrics({ limits: [{ kind: "weekly", group: "weekly", percent: 24 }] })).toEqual([
+      expect.objectContaining({ id: "weekly", usedPercent: 24 }),
+    ])
+  })
+
   it("keeps legacy limits and adds scoped Fable usage", () => {
     const metrics = parseClaudeUsageMetrics({
       five_hour: { utilization: 23, resets_at: "2026-09-04T12:00:00Z" },

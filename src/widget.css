@@ -13,6 +13,13 @@ body:has(.usage-widget) { min-width: 0; }
 .widget-account-head > img { width: 17px; height: 17px; flex: 0 0 auto; object-fit: contain; }
 .widget-account-head > strong { min-width: 0; flex: 1; overflow: hidden; color: #e6ece8; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .widget-account-head .plan { flex: 0 0 auto; }
+.widget-account-issue { border-color: #664332; }
+.widget-account-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding: 6px 8px; border: 1px solid #664332; border-radius: 6px; background: #281b16; color: #ffba98; font-size: 11px; font-weight: 650; }
+.widget-account-status > button { flex-shrink: 0; padding: 2px 0 2px 6px; background: transparent; color: inherit; font-size: 10px; }
+.widget-account-status > button:hover { color: #fff0e8; text-decoration: underline; }
+.widget-cached-label { margin: 0 0 8px; color: #b19a88; font-size: 10px; }
+.widget-status-detail { margin: 0 0 8px; color: #ffba98; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.widget-account-issue .widget-metrics { opacity: .65; }
 .widget-metrics { display: grid; gap: 10px; }
 .widget-metric { display: grid; grid-template-columns: 66px minmax(0, 1fr) 34px; align-items: center; gap: 8px; }
 .widget-metric-label { overflow: hidden; color: #8c9990; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

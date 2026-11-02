@@ -5,17 +5,49 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { providerError } from "./shared/account-state"
 import { PROVIDERS, PROVIDER_ORDER } from "./shared/providers"
 import { WidgetRequests } from "./shared/widget-requests"
-import type { Account, AccountUsage } from "./shared/types"
+import { usageStatus } from "./shared/usage-status"
+import type { Account, AccountUsage, ProviderError } from "./shared/types"
 import "./widget.css"
 
 interface WidgetAccount extends Account {
   usage: AccountUsage | null
+  error: ProviderError | null
+}
+
+export function withCachedWidgetUsage(account: WidgetAccount, usage: AccountUsage | null): WidgetAccount {
+  return { ...account, usage, error: usage ? usage.error : account.error }
 }
 
 const ICONS = {
   claude: "./provider-icons/claude-symbol.svg",
   codex: "./provider-icons/codex.svg",
   cursor: "./provider-icons/cursor-dark.svg",
+}
+
+export function WidgetAccountCard({ account, onOpenMain }: { account: WidgetAccount; onOpenMain: () => void }) {
+  const { issue, plan, hideUsage, previousValues, previousLabel } = usageStatus(account)
+  return (
+    <article className={`widget-account${issue ? " widget-account-issue" : ""}`}>
+      <div className="widget-account-head">
+        <img src={ICONS[account.provider]} alt={PROVIDERS[account.provider].name} />
+        <strong title={account.usage?.email ? `${account.label} · ${account.usage.email}` : account.label}>{account.label}</strong>
+        {plan ? <span className="plan">{plan}</span> : null}
+      </div>
+      {issue ? <div className="widget-account-status" role="status" title={issue.detail}>
+        <span>{issue.label}</span>
+        <button type="button" onClick={onOpenMain} aria-label={`${account.label} 문제를 전체 화면에서 확인`}>확인 ↗</button>
+      </div> : null}
+      {issue ? <p className="widget-status-detail">{issue.detail}</p> : null}
+      {previousValues && account.usage?.metrics.length ? <p className="widget-cached-label" title={`마지막 조회: ${account.usage.fetchedAt}`}>{previousLabel}</p> : null}
+      {!hideUsage && account.usage?.metrics.length ? <div className="widget-metrics">{account.usage.metrics.map((metric) => (
+        <div className="widget-metric" key={metric.id} title={metric.resetText ?? undefined}>
+          <span className="widget-metric-label">{metric.label}</span>
+          <div className="track" aria-label={`${metric.label} ${metric.usedPercent}%`}><div className={`fill ${metric.usedPercent >= 90 ? "danger" : metric.usedPercent >= 70 ? "warning" : "safe"}`} style={{ width: `${metric.usedPercent}%` }} /></div>
+          <strong>{metric.usedPercent}%</strong>
+        </div>
+      ))}</div> : !hideUsage ? <p className="widget-no-usage">아직 표시할 사용량이 없습니다.</p> : null}
+    </article>
+  )
 }
 
 export function UsageWidget() {
@@ -45,10 +77,14 @@ export function UsageWidget() {
       if (!requests.isCurrent(ticket)) return
       const usage = await window.usageViewer.refreshAccount(accountId, force)
       if (!requests.isCurrent(ticket)) return
-      setAccounts((items) => items.map((item) => item.id === accountId ? { ...item, usage } : item))
+      setAccounts((items) => items.map((item) => item.id === accountId ? { ...item, usage, error: usage.error } : item))
     } catch (error) {
-      if (requests.isCurrent(ticket) && providerError(error).code === "notFound") {
+      if (!requests.isCurrent(ticket)) return
+      const failure = providerError(error)
+      if (failure.code === "notFound") {
         setAccounts((items) => items.filter((item) => item.id !== accountId))
+      } else if (failure.code !== "cancelled") {
+        setAccounts((items) => items.map((item) => item.id === accountId ? { ...item, error: failure } : item))
       }
     } finally {
       requests.finishAccount(accountId, ticket)
@@ -57,6 +93,12 @@ export function UsageWidget() {
   }, [pause, requests])
 
   const refresh = useCallback(async (force = false) => {
+    if (isTauri()) {
+      try {
+        if (!(await getCurrentWindow().isVisible())) { pause(); return }
+      } catch { return }
+    }
+    requests.resume()
     const ticket = requests.beginListing()
     if (!ticket) return
     setListing(true)
@@ -69,7 +111,10 @@ export function UsageWidget() {
       const listed = await window.usageViewer.listAccounts()
       if (!requests.isCurrent(ticket)) return
       const ordered = PROVIDER_ORDER.flatMap((provider) => listed.filter((account) => account.provider === provider))
-      setAccounts((items) => ordered.map((account) => ({ ...account, usage: items.find((item) => item.id === account.id)?.usage ?? null })))
+      setAccounts((items) => ordered.map((account) => {
+        const previous = items.find((item) => item.id === account.id)
+        return { ...account, usage: previous?.usage ?? null, error: previous?.error ?? null }
+      }))
       setReady(true)
       setMessage(null)
       await Promise.all(ordered.map(async (account) => {
@@ -77,12 +122,16 @@ export function UsageWidget() {
         try {
           const usage = await window.usageViewer.getCachedUsage(account.id)
           if (!requests.isCurrent(ticket)) return
-          setAccounts((items) => items.map((item) => item.id === account.id ? { ...item, usage } : item))
+          setAccounts((items) => items.map((item) => item.id === account.id ? withCachedWidgetUsage(item, usage) : item))
         } catch (error) {
           if (!requests.isCurrent(ticket)) return
-          if (providerError(error).code === "notFound") {
+          const failure = providerError(error)
+          if (failure.code === "notFound") {
             setAccounts((items) => items.filter((item) => item.id !== account.id))
             return
+          }
+          if (failure.code !== "cancelled") {
+            setAccounts((items) => items.map((item) => item.id === account.id ? { ...item, error: failure } : item))
           }
         }
         if (requests.isCurrent(ticket)) void refreshAccount(account.id, force)
@@ -114,20 +163,17 @@ export function UsageWidget() {
     }).catch(() => undefined)
     void refresh()
     const onFocus = () => { requests.resume(); void refresh() }
-    const onBlur = () => { pause() }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") hide()
     }
     const timer = window.setInterval(() => void refresh(), 5_000)
     window.addEventListener("focus", onFocus)
-    window.addEventListener("blur", onBlur)
     window.addEventListener("keydown", onKeyDown)
     let unlisten: (() => void) | undefined
     if (isTauri()) {
       void getCurrentWindow().onFocusChanged(({ payload }) => {
         if (!active) return
         if (payload) onFocus()
-        else onBlur()
       }).then((remove) => {
         if (active) unlisten = remove
         else remove()
@@ -139,10 +185,9 @@ export function UsageWidget() {
       unlisten?.()
       window.clearInterval(timer)
       window.removeEventListener("focus", onFocus)
-      window.removeEventListener("blur", onBlur)
       window.removeEventListener("keydown", onKeyDown)
     }
-  }, [hide, pause, refresh, requests])
+  }, [hide, refresh, requests])
 
   function openMain() {
     pause()
@@ -165,22 +210,7 @@ export function UsageWidget() {
         {message ? <p className="widget-empty" role="status">{message}</p> : null}
         {!ready ? <div className="widget-empty"><div className="loader small" />사용량 불러오는 중</div> : null}
         {ready && !message && accounts.length === 0 ? <div className="widget-empty">연결된 계정이 없습니다.<button type="button" className="secondary-button compact" onClick={openMain}>계정 연결하기</button></div> : null}
-        {accounts.map((account) => (
-          <article className="widget-account" key={account.id}>
-            <div className="widget-account-head">
-              <img src={ICONS[account.provider]} alt={PROVIDERS[account.provider].name} />
-              <strong title={account.usage?.email ? `${account.label} · ${account.usage.email}` : account.label}>{account.label}</strong>
-              {account.usage?.plan ? <span className="plan">{account.usage.plan}</span> : null}
-            </div>
-            {account.usage?.metrics.length ? <div className="widget-metrics">{account.usage.metrics.map((metric) => (
-              <div className="widget-metric" key={metric.id} title={metric.resetText ?? undefined}>
-                <span className="widget-metric-label">{metric.label}</span>
-                <div className="track" aria-label={`${metric.label} ${metric.usedPercent}%`}><div className={`fill ${metric.usedPercent >= 90 ? "danger" : metric.usedPercent >= 70 ? "warning" : "safe"}`} style={{ width: `${metric.usedPercent}%` }} /></div>
-                <strong>{metric.usedPercent}%</strong>
-              </div>
-            ))}</div> : <p className="widget-no-usage">아직 표시할 사용량이 없습니다.</p>}
-          </article>
-        ))}
+        {accounts.map((account) => <WidgetAccountCard key={account.id} account={account} onOpenMain={openMain} />)}
       </div>
       <footer className="widget-footer"><button type="button" onClick={openMain}>전체 화면 열기 <span aria-hidden="true">↗</span></button></footer>
     </section>

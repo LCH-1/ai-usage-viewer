@@ -193,6 +193,10 @@ button:disabled { cursor: default; opacity: .45; }
   text-align: left;
 }
 .notice.error { border-color: #4a292e; background: #201315; color: #ff9aa7; }
+.notice.usage-status { display: grid; gap: 4px; }
+.notice.usage-status.warning { border-color: #664332; background: #281b16; color: #ffba98; }
+.notice.usage-status > span { font-size: 11px; line-height: 1.5; }
+.cached-usage-label { margin: 0 0 10px; color: #b19a88; font-size: 11px; }
 .login-callout:hover { background: #212117; }
 .account-login-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .portal-help { line-height: 1.6; overflow-wrap: anywhere; }

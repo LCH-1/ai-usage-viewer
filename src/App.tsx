@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 
 import { AccountRequestCoordinator } from "./shared/account-requests"
 import { canRefreshAccount, providerError } from "./shared/account-state"
+import { usageStatus } from "./shared/usage-status"
 import { PROVIDERS, PROVIDER_ORDER } from "./shared/providers"
 import type { Account, AccountView, ProviderId, UpdateInfo, UsageMetric } from "./shared/types"
 
@@ -72,13 +73,12 @@ function WindowTitlebar({ version }: { version: string | null }) {
   )
 }
 
-function AccountCard({ account, onCancelAuthentication, onEdit }: {
+export function AccountCard({ account, onCancelAuthentication, onEdit }: {
   account: AccountView
   onCancelAuthentication: (id: string) => void
   onEdit: (id: string) => void
 }) {
-  const plan = account.usage?.plan
-  const visibleError = account.error && !["rateLimited", "temporary", "cancelled", "authenticating"].includes(account.error.code) ? account.error : null
+  const { issue, plan, hideUsage, previousValues, previousLabel } = usageStatus(account)
   return (
     <article className="account-card">
       <div className="account-head">
@@ -94,8 +94,9 @@ function AccountCard({ account, onCancelAuthentication, onEdit }: {
         </div>
       </div>
 
-      {visibleError ? <div className="notice error" role="status">{visibleError.message}</div> : null}
-      {account.usage?.metrics.length ? (
+      {issue ? <div className={`notice usage-status ${issue.tone}`} role="status"><strong>{issue.label}</strong><span>{issue.detail}</span></div> : null}
+      {previousValues && account.usage?.metrics.length ? <p className="cached-usage-label">{previousLabel}</p> : null}
+      {!hideUsage && account.usage?.metrics.length ? (
         <div className="metrics">
           {account.usage.metrics.map((metric) => <Metric key={metric.id} metric={metric} />)}
         </div>

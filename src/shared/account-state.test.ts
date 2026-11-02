@@ -17,6 +17,12 @@ const account: AccountView = {
 }
 
 describe("account recovery state", () => {
+  it("rechecks legacy forbidden usage errors while keeping genuine login failures blocked", () => {
+    const error = providerError({ code: "authRequired", message: "forbidden", status: 403, endpoint: "claude.usage" })
+    expect(canRefreshAccount({ ...account, error }, Date.now())).toBe(true)
+    expect(canRefreshAccount({ ...account, error: { ...error, status: 401 } }, Date.now())).toBe(false)
+  })
+
   it("waits for the provider retry time and keeps authentication errors out of automatic polling", () => {
     const now = Date.parse("2026-09-07T00:00:00Z")
     const error = providerError({ code: "rateLimited", message: "Wait", retryAt: "2026-09-07T00:01:00Z" })
